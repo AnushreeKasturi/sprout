@@ -55,6 +55,20 @@ SPROUT_BENCH_DIR=/tmp/k8s go test -run '^$' -bench .
 
 Please include before/after numbers in performance PRs.
 
+## Graph accuracy
+
+`tools/accuracy` scores the dependency graph against each language's own
+tooling (the TypeScript compiler, Python's `ast`, `go/parser`, Rust's module
+rules) on pinned repositories:
+
+```bash
+python3 tools/accuracy/run.py
+```
+
+Please include before/after numbers in PRs that change import scanning or
+resolution. [tools/accuracy/README.md](tools/accuracy/README.md) explains the
+numbers and has the current baseline.
+
 ## Releasing (maintainers)
 
 Tag and push; the Release workflow runs GoReleaser and updates the Homebrew

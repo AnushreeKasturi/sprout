@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "Ground truth for tools/accuracy: the TypeScript compiler's import listing and module resolution",
+  "dependencies": {
+    "typescript": "5.9.3"
+  }
+}
