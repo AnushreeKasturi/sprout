@@ -6,6 +6,10 @@
 [![Release](https://img.shields.io/github/v/release/Sprout-DevLabs/sprout)](https://github.com/Sprout-DevLabs/sprout/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+<p align="center">
+  <img src=".github/assets/sprout-demo.gif" width="800" alt="Sprout demo: sprout maps a repository as a tree, lists where to start reading with sprout --entry, and condenses the project into a 1,484-token map for AI agents with sprout --ai.">
+</p>
+
 Sprout is a fast, single-binary directory explorer built around how developers
 read projects:
 
