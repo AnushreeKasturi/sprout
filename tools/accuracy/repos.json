@@ -1,0 +1,10 @@
+[
+  { "name": "taxonomy", "url": "https://github.com/shadcn-ui/taxonomy", "commit": "298a8857c7128a0d121e7f699dfd729f23b3966d", "why": "Next.js app, tsconfig path aliases" },
+  { "name": "ky", "url": "https://github.com/sindresorhus/ky", "commit": "0d59458a0a58e1c3d7c6db0ab17ed5c7cd671e47", "why": "TypeScript library, relative imports" },
+  { "name": "create-t3-turbo", "url": "https://github.com/t3-oss/create-t3-turbo", "commit": "8f945b7bb3bfb3ca8358d48b1ff0214079bc11ee", "why": "pnpm workspace monorepo" },
+  { "name": "click", "url": "https://github.com/pallets/click", "commit": "06b2a678741131fd577ce170e23e5ca0aeba0309", "why": "Python library, src/ layout" },
+  { "name": "fastapi-template", "url": "https://github.com/fastapi/full-stack-fastapi-template", "commit": "cb740b656d7a0a6c5e12c7bf8e50343ec94ee9c7", "why": "Python app rooted in backend/, plus a TypeScript frontend" },
+  { "name": "kubernetes", "url": "https://github.com/kubernetes/kubernetes", "commit": "212d43e100c1ec5368dd8f165cc277af5f70ec9f", "why": "large multi-module Go" },
+  { "name": "anyhow", "url": "https://github.com/dtolnay/anyhow", "commit": "2cbb4e1bcbf8e7015f8d8b04a291c4c0597030b4", "why": "single Rust crate" },
+  { "name": "ripgrep", "url": "https://github.com/BurntSushi/ripgrep", "commit": "3fce3b5bb0236da2df6d99672afb8a719642eca7", "why": "Rust workspace" }
+]
