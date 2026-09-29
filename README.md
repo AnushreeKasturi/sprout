@@ -9,7 +9,7 @@
 Sprout is a fast, single-binary directory explorer built around how developers
 read projects:
 
-<video src="demo/sprout-film-v5-edit.mp4" poster="demo/poster-graph.png"
+<video src=".demo/sprout-film-v5-edit.mp4" poster="demo/poster-graph.png"
        autoplay muted loop playsinline width="100%"></video>
 
 - It respects `.gitignore` and counts what it hides.
