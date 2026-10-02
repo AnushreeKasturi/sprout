@@ -32,6 +32,18 @@ type Graph struct {
 	revOff []int32 // Dependents(id) is rev[revOff[id]:revOff[id+1]]
 	rev    []FileID
 	usedBy []int32 // dependents that aren't tests
+
+	why func(from, to FileID) string // set by the analyzers; see Why
+}
+
+// Why says what makes from depend on to: the import, or the names it uses.
+// It re-reads the two files, so it's for answering queries about a few
+// edges, not for ranking the whole graph.
+func (g *Graph) Why(from, to FileID) string {
+	if g.why == nil {
+		return ""
+	}
+	return g.why(from, to)
 }
 
 // ID looks a file up by its relative path.

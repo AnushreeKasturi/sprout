@@ -89,7 +89,7 @@ func BenchmarkGraph(b *testing.B) {
 		}
 		b.Run(name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				g := buildGraph(dir, t, tests)
+				g := buildGraph(dir, t, tests, true)
 				b.ReportMetric(float64(len(g.Files)), "files")
 				b.ReportMetric(float64(len(g.fwd)), "edges")
 			}

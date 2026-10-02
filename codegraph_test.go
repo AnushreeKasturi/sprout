@@ -17,7 +17,7 @@ func graphFor(t *testing.T, files map[string]string) *Graph {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return buildGraph(dir, tree, true)
+	return buildGraph(dir, tree, true, true)
 }
 
 func usedBy(g *Graph, rel string) int {

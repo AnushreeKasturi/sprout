@@ -24,7 +24,7 @@ func TestDumpGraph(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := buildGraph(dir, tree, true)
+	g := buildGraph(dir, tree, true, false)
 
 	fsPath := map[string]string{}
 	walk(tree.Root, func(n *Node) { fsPath[n.Rel] = tree.FSPath(n) })

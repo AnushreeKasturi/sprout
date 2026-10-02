@@ -20,7 +20,7 @@ func estimateTokens(s string) int { return (len(s) + 3) / 4 }
 func AIMap(t *Tree, root string, budget int) string {
 	// Parse sources while git works out status and history.
 	graph := make(chan *Graph, 1)
-	go func() { graph <- buildGraph(root, t, false) }()
+	go func() { graph <- buildGraph(root, t, false, true) }()
 
 	var b strings.Builder
 	s := &Stats{Languages: map[string]int{}}

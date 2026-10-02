@@ -17,6 +17,9 @@ Usage:
   sprout [path] [flags]
   sprout github.com/owner/repo [flags]   map a remote repository (any git URL works)
   sprout mcp [root]       serve project_map, tree and diff_tree to coding agents (MCP, stdio)
+  sprout deps FILE        what FILE depends on, and why; --depth N follows more hops (-1 for all)
+  sprout dependents FILE  what depends on FILE, tests included (--no-tests to skip); --json
+                          (to map a folder named deps or dependents, write ./deps)
 
 Views:
   (default)               tree of the project, respecting .gitignore
@@ -162,6 +165,10 @@ func run(args []string, out, stderr io.Writer) int {
 	defer buf.Flush()
 	var stdout io.Writer = buf
 
+	if len(args) > 0 && (args[0] == "deps" || args[0] == "dependents") {
+		return runQuery(args[0], args[1:], stdout, stderr)
+	}
+
 	f, path, err := parseFlags(args, stderr)
 	if err == flag.ErrHelp {
 		fmt.Fprint(stdout, usage)
@@ -254,7 +261,7 @@ func run(args []string, out, stderr io.Writer) int {
 	}
 
 	if f.entry {
-		steps := readingOrder(path, tree, buildGraph(path, tree, false), 15)
+		steps := readingOrder(path, tree, buildGraph(path, tree, false, false), 15)
 		printReadingOrder(stdout, tree.Root.Name, steps)
 		return 0
 	}
