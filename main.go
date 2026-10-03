@@ -19,7 +19,9 @@ Usage:
   sprout mcp [root]       serve project_map, tree and diff_tree to coding agents (MCP, stdio)
   sprout deps FILE        what FILE depends on, and why; --depth N follows more hops (-1 for all)
   sprout dependents FILE  what depends on FILE, tests included (--no-tests to skip); --json
-                          (to map a folder named deps or dependents, write ./deps)
+  sprout impact [FILE...] what a change could affect and the tests to run: the files named,
+                          or uncommitted changes; --staged, --diff main...HEAD, --commit REV
+                          (to map a folder named deps, dependents or impact, write ./deps)
 
 Views:
   (default)               tree of the project, respecting .gitignore
@@ -167,6 +169,9 @@ func run(args []string, out, stderr io.Writer) int {
 
 	if len(args) > 0 && (args[0] == "deps" || args[0] == "dependents") {
 		return runQuery(args[0], args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "impact" {
+		return runImpact(args[1:], stdout, stderr)
 	}
 
 	f, path, err := parseFlags(args, stderr)

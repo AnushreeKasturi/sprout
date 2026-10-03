@@ -366,7 +366,8 @@ func isTestPath(rel string) bool {
 
 func capList(list []string, n int) []string {
 	if len(list) > n {
-		return append(list[:n], fmt.Sprintf("+%d more", len(list)-n))
+		// Copy: appending to list[:n] would overwrite the caller's list[n].
+		return append(append([]string{}, list[:n]...), fmt.Sprintf("+%d more", len(list)-n))
 	}
 	return list
 }

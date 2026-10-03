@@ -179,6 +179,43 @@ func (r *gitRepo) diff(rev string) (map[string]*Node, error) {
 	return files, nil
 }
 
+// staged returns the status code of each staged path under root.
+func (r *gitRepo) staged() (map[string]string, error) {
+	out, err := r.run("diff", "--cached", "--relative", "--find-renames", "--name-status", "-z", "--")
+	if err != nil {
+		return nil, err
+	}
+	return nameStatus(out), nil
+}
+
+// changedIn returns the status code of each path changed in a revision or
+// range, e.g. main...HEAD, or HEAD^! for one commit.
+func (r *gitRepo) changedIn(rev string) (map[string]string, error) {
+	files, err := r.diff(rev)
+	if err != nil {
+		return nil, err
+	}
+	codes := make(map[string]string, len(files))
+	for p, n := range files {
+		codes[p] = n.Status
+	}
+	return codes, nil
+}
+
+// nameStatus parses `git diff --name-status -z`, keeping a rename's new path.
+func nameStatus(out string) map[string]string {
+	codes := map[string]string{}
+	f := strings.Split(out, "\x00")
+	for i := 0; i+1 < len(f); i += 2 {
+		code := f[i][:1]
+		if code == "R" || code == "C" {
+			i++
+		}
+		codes[f[i+1]] = code
+	}
+	return codes
+}
+
 // diffTree builds a tree of only the changed paths, so a PR's structural
 // footprint reads at a glance. Directories sum their children's line counts;
 // below maxDepth (if >= 0) subtrees collapse into those totals.
