@@ -55,6 +55,9 @@ func TestMCPHandshakeAndTools(t *testing.T) {
 	if v := resps[1]["result"].(map[string]any)["protocolVersion"]; v != "2025-06-18" {
 		t.Errorf("protocolVersion = %v", v)
 	}
+	if ins, _ := resps[1]["result"].(map[string]any)["instructions"].(string); !strings.Contains(ins, "impact") {
+		t.Errorf("initialize should tell agents when to use the graph tools: %q", ins)
+	}
 	if n := len(resps[2]["result"].(map[string]any)["tools"].([]any)); n != 8 {
 		t.Errorf("tools/list returned %d tools", n)
 	}
