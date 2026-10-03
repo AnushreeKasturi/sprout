@@ -24,8 +24,8 @@ import (
 // use line-oriented patterns, which cover the common declaration and import
 // forms without a parser dependency.
 //
-// ponytail: regex extraction misses unusual formatting and path aliases
-// (tsconfig "@/..."); tree-sitter would fix both at the cost of cgo.
+// JS and TS imports skip comments and span lines, and resolve through
+// tsconfig paths and workspace packages (jsresolve.go).
 
 const (
 	maxGraphFiles = 50000
@@ -80,9 +80,16 @@ type fileFacts struct {
 func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 	var nodes []*Node
 	var goMods []*Node
+	var jsConfigs, jsManifests []string
 	walk(t.Root, func(n *Node) {
 		if n.IsDir || n.Missing {
 			return
+		}
+		switch n.Name {
+		case "tsconfig.json", "jsconfig.json":
+			jsConfigs = append(jsConfigs, n.Rel)
+		case "package.json":
+			jsManifests = append(jsManifests, n.Rel)
 		}
 		isMod, lang := n.Name == "go.mod", langOf(n.Name) // cheap checks first: this visits every file
 		if (!isMod && lang == "") || inDir(n.Rel, graphSkip) {
@@ -104,6 +111,9 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 		exists[n.Rel] = true
 	}
 	r := resolver{exists: exists, goModules: goModules(t, goMods), javaIndex: javaIndex(nodes)}
+	if len(jsConfigs)+len(jsManifests) > 0 {
+		r.js = loadJSProject(jsConfigs, jsManifests, func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) })
+	}
 
 	// Parse in parallel: reading and parsing dominate on large repos.
 	facts := make([]fileFacts, len(nodes))
@@ -568,7 +578,7 @@ var declPatterns = map[string][]*regexp.Regexp{
 
 var importPatterns = map[string][]*regexp.Regexp{
 	"js": {
-		regexp.MustCompile(`(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]`),
+		regexp.MustCompile(`\b(?:import|export)\s[^'";]*?from\s*['"]([^'"]+)['"]`),
 		regexp.MustCompile(`import\s*\(?\s*['"]([^'"]+)['"]`),
 		regexp.MustCompile(`require\(\s*['"]([^'"]+)['"]\s*\)`),
 	},
@@ -605,11 +615,16 @@ func scanDecls(lang string, src []byte) (symbols, imports []string) {
 				break
 			}
 		}
-		for _, re := range importPatterns[lang] {
-			for _, m := range re.FindAllStringSubmatch(line, -1) {
-				imports = append(imports, m[1])
+		if lang != "js" {
+			for _, re := range importPatterns[lang] {
+				for _, m := range re.FindAllStringSubmatch(line, -1) {
+					imports = append(imports, m[1])
+				}
 			}
 		}
+	}
+	if lang == "js" {
+		imports = jsImports(src)
 	}
 	return symbols, imports
 }
@@ -670,6 +685,7 @@ type resolver struct {
 	exists    map[string]bool
 	goModules []goModule
 	javaIndex map[string]string // "com/acme/Foo" -> rel path
+	js        *jsProject
 }
 
 // goPackageDir maps a Go import path to the directory it lives in, if a
@@ -692,22 +708,10 @@ func (r resolver) resolve(lang, from, spec string) []string {
 	switch lang {
 	case "js":
 		if !strings.HasPrefix(spec, ".") {
-			return nil // a package, not a local file
+			return r.resolveBare(from, spec)
 		}
-		base := path.Join(dir, spec)
-		for _, cand := range []string{base, base + ".ts", base + ".tsx", base + ".js", base + ".jsx",
-			base + ".mjs", base + ".cjs", base + "/index.ts", base + "/index.tsx", base + "/index.js", base + "/index.jsx"} {
-			if r.exists[cand] {
-				return []string{cand}
-			}
-		}
-		// "./x.js" written in TypeScript source often means x.ts
-		if trimmed := strings.TrimSuffix(base, path.Ext(base)); trimmed != base {
-			for _, ext := range []string{".ts", ".tsx"} {
-				if r.exists[trimmed+ext] {
-					return []string{trimmed + ext}
-				}
-			}
+		if f, ok := r.probeJS(path.Join(dir, spec)); ok {
+			return []string{f}
 		}
 	case "py":
 		mod := spec
