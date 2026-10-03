@@ -120,3 +120,16 @@ func TestQueryRootWithoutGit(t *testing.T) {
 		t.Errorf("exit %d:\n%s", code, out)
 	}
 }
+
+// Python helpers among the tests are labelled as helpers, not tests to run.
+func TestDependentsLabelsTestHelpers(t *testing.T) {
+	dir := t.TempDir()
+	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
+	write(t, dir, "app/crud.py", "def create(): pass\n")
+	write(t, dir, "tests/conftest.py", "from app import crud\n")
+	write(t, dir, "tests/test_crud.py", "from app import crud\n")
+	out, _, _ := runCLI(t, "dependents", filepath.Join(dir, "app/crud.py"))
+	if !strings.Contains(out, "tests/conftest.py   test helper · ") || !strings.Contains(out, "tests/test_crud.py  test · ") {
+		t.Errorf("labels:\n%s", out)
+	}
+}

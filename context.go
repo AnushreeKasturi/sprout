@@ -73,9 +73,10 @@ func fileContext(g *Graph, id FileID, src string, budget int) string {
 	var tests []string
 	affected := 0
 	for _, h := range reach {
-		if h.Test {
+		switch {
+		case runnableTest(g.Files[h.id]):
 			tests = append(tests, h.Path)
-		} else {
+		case !h.Test:
 			affected++
 		}
 	}

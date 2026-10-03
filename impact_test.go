@@ -115,3 +115,22 @@ func TestImpactErrors(t *testing.T) {
 		}
 	}
 }
+
+// Python helpers among the tests are followed but not listed as tests to run.
+func TestImpactListsRunnableTests(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "app/__init__.py", "")
+	write(t, dir, "app/crud.py", "def create(): pass\n")
+	write(t, dir, "tests/conftest.py", "from app import crud\n")
+	write(t, dir, "tests/utils/user.py", "from app import crud\n")
+	write(t, dir, "tests/test_api.py", "from tests.utils import user\n")
+	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
+	out, _, code := runCLI(t, "impact", filepath.Join(dir, "app/crud.py"), "--json")
+	var r impactResult
+	if code != 0 || json.Unmarshal([]byte(out), &r) != nil {
+		t.Fatalf("exit %d: %s", code, out)
+	}
+	if strings.Join(r.Tests, ",") != "tests/test_api.py" {
+		t.Errorf("tests = %v, want only tests/test_api.py (reached through the helper)", r.Tests)
+	}
+}
