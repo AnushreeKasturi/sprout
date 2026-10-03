@@ -80,7 +80,7 @@ type fileFacts struct {
 func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 	var nodes []*Node
 	var goMods []*Node
-	var jsConfigs, jsManifests []string
+	var jsConfigs, jsManifests, pyRoots []string
 	walk(t.Root, func(n *Node) {
 		if n.IsDir || n.Missing {
 			return
@@ -90,6 +90,8 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 			jsConfigs = append(jsConfigs, n.Rel)
 		case "package.json":
 			jsManifests = append(jsManifests, n.Rel)
+		case "pyproject.toml", "setup.py", "setup.cfg":
+			pyRoots = append(pyRoots, path.Dir(n.Rel), path.Join(path.Dir(n.Rel), "src"))
 		}
 		isMod, lang := n.Name == "go.mod", langOf(n.Name) // cheap checks first: this visits every file
 		if (!isMod && lang == "") || inDir(n.Rel, graphSkip) {
@@ -110,7 +112,7 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 		b.add(GraphFile{Rel: n.Rel, Test: isTestRel(n.Rel)})
 		exists[n.Rel] = true
 	}
-	r := resolver{exists: exists, goModules: goModules(t, goMods), javaIndex: javaIndex(nodes)}
+	r := resolver{exists: exists, goModules: goModules(t, goMods), javaIndex: javaIndex(nodes), pyRoots: pyRoots}
 	if len(jsConfigs)+len(jsManifests) > 0 {
 		r.js = loadJSProject(jsConfigs, jsManifests, func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) })
 	}
@@ -582,10 +584,6 @@ var importPatterns = map[string][]*regexp.Regexp{
 		regexp.MustCompile(`import\s*\(?\s*['"]([^'"]+)['"]`),
 		regexp.MustCompile(`require\(\s*['"]([^'"]+)['"]\s*\)`),
 	},
-	"py": {
-		regexp.MustCompile(`^\s*from\s+(\.*[\w.]*)\s+import\b`),
-		regexp.MustCompile(`^\s*import\s+([\w.]+)`),
-	},
 	"rs": {
 		regexp.MustCompile(`^\s*(?:pub\s+)?mod\s+(\w+)\s*;`),
 		regexp.MustCompile(`^\s*(?:pub\s+)?use\s+(crate::[\w:]+)`),
@@ -594,28 +592,15 @@ var importPatterns = map[string][]*regexp.Regexp{
 	"kt":   {regexp.MustCompile(`^\s*import\s+([\w.]+)`)},
 }
 
-// pyFromDot matches "from . import a, b" and "from .. import c": sibling
-// modules imported by name.
-var pyFromDot = regexp.MustCompile(`^\s*from\s+(\.+)\s+import\s+\(?([\w\s,]+)`)
-
 func scanDecls(lang string, src []byte) (symbols, imports []string) {
 	for _, line := range strings.Split(string(src), "\n") {
-		if lang == "py" {
-			if m := pyFromDot.FindStringSubmatch(line); m != nil {
-				for _, name := range strings.Split(m[2], ",") {
-					if f := strings.Fields(name); len(f) > 0 {
-						imports = append(imports, m[1]+f[0]) // "from . import x as y" -> ".x"
-					}
-				}
-			}
-		}
 		for _, re := range declPatterns[lang] {
 			if m := re.FindString(line); m != "" {
 				symbols = append(symbols, trimDecl(m))
 				break
 			}
 		}
-		if lang != "js" {
+		if lang != "js" && lang != "py" {
 			for _, re := range importPatterns[lang] {
 				for _, m := range re.FindAllStringSubmatch(line, -1) {
 					imports = append(imports, m[1])
@@ -623,8 +608,11 @@ func scanDecls(lang string, src []byte) (symbols, imports []string) {
 			}
 		}
 	}
-	if lang == "js" {
+	switch lang {
+	case "js":
 		imports = jsImports(src)
+	case "py":
+		imports = pyImports(src)
 	}
 	return symbols, imports
 }
@@ -686,6 +674,7 @@ type resolver struct {
 	goModules []goModule
 	javaIndex map[string]string // "com/acme/Foo" -> rel path
 	js        *jsProject
+	pyRoots   []string // folders with a pyproject.toml, setup.py or setup.cfg, and their src/
 }
 
 // goPackageDir maps a Go import path to the directory it lives in, if a
@@ -714,25 +703,7 @@ func (r resolver) resolve(lang, from, spec string) []string {
 			return []string{f}
 		}
 	case "py":
-		mod := spec
-		base := ""
-		if strings.HasPrefix(mod, ".") {
-			up := len(mod) - len(strings.TrimLeft(mod, "."))
-			base = dir
-			for i := 1; i < up; i++ {
-				base = path.Dir(base)
-			}
-			mod = mod[up:]
-		}
-		rel := strings.ReplaceAll(mod, ".", "/")
-		for _, prefix := range []string{base, "", "src"} {
-			p := path.Join(prefix, rel)
-			for _, cand := range []string{p + ".py", path.Join(p, "__init__.py")} {
-				if r.exists[cand] {
-					return []string{cand}
-				}
-			}
-		}
+		return r.resolvePython(from, spec)
 	case "rs":
 		if name, ok := strings.CutPrefix(spec, "crate::"); ok {
 			// crate::a::b::Item -> src/a/b.rs, src/a/b/mod.rs, src/a.rs, ...
