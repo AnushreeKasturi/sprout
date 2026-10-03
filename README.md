@@ -136,8 +136,10 @@ $ sprout dependents graph.go --depth 2
 ```
 
 Go is resolved to the file that declares what's used. Other languages are
-resolved from their import statements; for TypeScript and JavaScript that
-includes tsconfig `paths` and `baseUrl` and packages of the same workspace. To map a folder named `deps` or `dependents`, write `./deps`.
+resolved from their imports: tsconfig `paths` and workspace packages for
+TypeScript, real source roots for Python, and crates, `use` trees and workspace
+crates for Rust. `tools/accuracy` checks this against each language's own
+tooling. To map a folder named `deps` or `dependents`, write `./deps`.
 
 ## `--diff`: a pull request as a tree
 

@@ -41,7 +41,36 @@ and a wrong one adds noise.
 | Go | `go/parser` for imports; import paths map to the repository module with the longest matching path. | Checked per package: a link must land in the imported package's folder. Checking the exact file within the package would need a type checker. |
 | Rust | Rust's module rules (see `truth/rs.py`): `mod` declarations from each crate root in `Cargo.toml`, expanded `use` trees, `self`/`super`/`crate`, workspace crates, and qualified paths in code. | Follows the compiler's rules without macros or `cfg`. |
 
-## Baseline
+## Current
+
+After #34–#37 (TS/JS, Python, Rust and Go resolution):
+
+| Repository | Language | Files | In-repo imports found | False imports | Links found | Links correct |
+|---|---|---:|---:|---:|---:|---:|
+| taxonomy | TS/JS | 131 | 100% (270/270) | 0 | 100% (270/270) | 100% (270/270) |
+| ky | TS/JS | 87 | 100% (164/164) | 1 | 100% (157/157) | 100% (157/157) |
+| create-t3-turbo | TS/JS | 77 | 100% (117/117) | 4 | 100% (113/113) | 99% (113/114) |
+| click | Python | 77 | 100% (319/319) | 3 | 100% (151/151) | 99% (155/156) |
+| fastapi-template | TS/JS | 109 | 100% (293/293) | 0 | 100% (292/292) | 100% (292/292) |
+| fastapi-template | Python | 43 | 100% (75/75) | 0 | 100% (79/79) | 100% (90/90) |
+| kubernetes | Go | 13,002 | n/a (go/parser) | – | 100% (56018/56137) | 100% (56018/56018) |
+| anyhow | Rust | 29 | 100% (99/99) | 4 | 100% (53/53) | 100% (53/53) |
+| ripgrep | Rust | 106 | 100% (683/686) | 7 | 99% (270/274) | 100% (270/271) |
+
+Every remaining "wrong" link was checked by hand, and in each case Sprout is
+right and the ground truth is too narrow:
+
+- create-t3-turbo: `next.config.js` loads `./src/env` with `jiti.import(...)`,
+  a real build-time dependency the TypeScript compiler doesn't count.
+- click: `tests/test_arguments.py` does `from test_options import ...`; pytest
+  puts the tests folder on the path. The Python rule only uses manifest roots.
+- ripgrep: `crates/core/main.rs` calls `flags::parse()`, a function defined in
+  `flags/parse.rs` and re-exported by `flags`; the module rules stop at `flags`.
+
+Kubernetes' few Python scripts aren't shown: they have one link
+(`hack/boilerplate/boilerplate_test.py` imports its neighbour, which is right).
+
+## Baseline (before #34–#37)
 
 Sprout `636d292`, 29 September 2026:
 
