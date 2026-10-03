@@ -56,6 +56,10 @@ func runQuery(cmd string, args []string, stdout, stderr io.Writer) int {
 	if err == nil {
 		_, err = os.Stat(abs)
 	}
+	if os.IsNotExist(err) {
+		fmt.Fprintf(stderr, "sprout: %s: no such file\n", arg)
+		return 1
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1
