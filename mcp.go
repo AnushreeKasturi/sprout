@@ -198,6 +198,23 @@ var graphTools = []mcpTool{
 		},
 		run: runImpact,
 	},
+	{
+		Name: "context",
+		Description: "Everything to know before editing one file, fitted to a token budget: what it declares, " +
+			"the signatures it uses from each dependency, the files that use it and why, and the tests that " +
+			"reach it. Call before editing a file you haven't read the neighbours of.",
+		InputSchema: fileSchema(map[string]any{
+			"budget": map[string]any{"type": "integer", "description": "Approximate token budget (default 1500)."},
+		}),
+		args: func(a toolArgs) ([]string, error) {
+			args := []string{a.File}
+			if a.Budget > 0 {
+				args = append(args, "--budget", strconv.Itoa(a.Budget))
+			}
+			return args, nil
+		},
+		run: runContext,
+	},
 }
 
 func init() { mcpTools = append(mcpTools, graphTools...) }

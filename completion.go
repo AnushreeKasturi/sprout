@@ -171,6 +171,11 @@ sprout \- map your codebase, for you and your AI agent
 .IR rev ]
 .RB [ \-\-all ]
 .RB [ \-\-json ]
+.br
+.B sprout context
+.I file
+.RB [ \-\-budget
+.IR n ]
 .SH DESCRIPTION
 Sprout prints a directory tree that respects .gitignore and counts what it hides.
 It can mark git changes and commit hotspots in place, show a revision range as a
@@ -187,7 +192,12 @@ which file they were reached through.
 changed ones, directly or through others, and the tests that reach them, with a
 \fBgo test\fR command for Go. The change is the files named, or the uncommitted
 changes, \fB\-\-staged\fR, \fB\-\-diff\fR \fIrev\fR or \fB\-\-commit\fR \fIrev\fR.
-To map a folder named deps, dependents or impact, write ./deps.
+.PP
+\fBsprout context\fR prints what to know before editing a file, fitted to a token
+budget (\fB\-\-budget\fR, default 1500): what it declares, the signatures it uses from
+each dependency, the files that use it and why, and the tests that reach it.
+.PP
+To map a folder named like a command (deps, dependents, impact, context), write ./deps.
 .SH OPTIONS
 `, time.Now().UTC().Format("2006-01-02"), r.Replace(resolveVersion()))
 	for _, f := range allFlags() {
