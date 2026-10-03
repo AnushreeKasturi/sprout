@@ -33,7 +33,9 @@ type queryResult struct {
 	Results       []queryHit `json:"results"`
 }
 
-func runQuery(cmd string, args []string, stdout, stderr io.Writer) int {
+// runQuery runs deps or dependents. root is the project root; "" finds it
+// from the file (the nearest .git above it).
+func runQuery(cmd string, args []string, root string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sprout "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
@@ -66,7 +68,9 @@ func runQuery(cmd string, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1
 	}
-	root := projectRoot(abs)
+	if root == "" {
+		root = projectRoot(abs)
+	}
 	g, err := projectGraph(root)
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout:", err)
