@@ -17,6 +17,17 @@ import (
 // JSON-RPC 2.0. Each tool is a thin wrapper that builds CLI arguments and
 // calls run(), so the CLI and agents always get identical behaviour.
 
+// mcpInstructions tell the agent when Sprout beats searching by hand.
+// Clients add them to the agent's context; without them, agents in our
+// evaluation (tools/agent-eval) never used the graph tools, even where grep
+// missed most of the answer.
+const mcpInstructions = "Sprout maps this codebase: its structure and how files depend on each other, " +
+	"resolved the way each language does (Go, TypeScript/JavaScript, Python, Rust, Java, Kotlin). " +
+	"Use it instead of grep for questions about relationships between files: dependents and deps for what " +
+	"imports a file and what it imports; impact for what a change could break and which tests cover it, " +
+	"including tests that reach a file through other files, which text search misses; context before " +
+	"editing a file; project_map to get oriented in an unfamiliar repository."
+
 var mcpVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
 
 type rpcRequest struct {
@@ -292,6 +303,7 @@ func handleMCP(root string, req rpcRequest) (any, *rpcError) {
 			"protocolVersion": version,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "sprout", "version": resolveVersion()},
+			"instructions":    mcpInstructions,
 		}, nil
 	case "ping":
 		return map[string]any{}, nil
