@@ -36,99 +36,221 @@ func dash(name string) string {
 
 var sortValues = "name size time"
 
+// subcommands and their flags, for completion. TestSubcommandFlagsExist
+// checks every flag listed here against the real command.
+type subcommand struct {
+	name, about string
+	flags       []flagInfo
+	files       bool // takes file arguments
+}
+
+var queryFlagInfo = []flagInfo{
+	{"depth", "how many hops to follow (-1 for all)", true},
+	{"no-tests", "leave test files out", false},
+	{"json", "print JSON", false},
+}
+
+var subcommands = []subcommand{
+	{"deps", "what a file depends on, and why", queryFlagInfo, true},
+	{"dependents", "what depends on a file, and why", queryFlagInfo, true},
+	{"impact", "what a change could break, and the tests to run", []flagInfo{
+		{"staged", "the staged changes", false},
+		{"diff", "the changes in a revision range", true},
+		{"commit", "the changes in one commit", true},
+		{"depth", "how many hops of dependents to follow", true},
+		{"all", "list every affected file", false},
+		{"json", "print JSON", false},
+	}, true},
+	{"context", "what to know before editing a file", []flagInfo{{"budget", "approximate token budget", true}}, true},
+	{"mcp", "serve Sprout to coding agents over MCP", nil, false},
+}
+
 func writeCompletion(w io.Writer, shell string) error {
 	fl := allFlags()
 	switch shell {
 	case "bash":
-		var names []string
-		var valued []string
-		for _, f := range fl {
-			names = append(names, dash(f.name))
-			if f.takesValue {
-				valued = append(valued, dash(f.name))
-			}
+		writeBash(w, fl)
+	case "zsh":
+		writeZsh(w, fl)
+	case "fish":
+		writeFish(w, fl)
+	case "powershell":
+		writePowerShell(w, fl)
+	default:
+		return fmt.Errorf("--completion supports bash, zsh, fish and powershell, not %q", shell)
+	}
+	return nil
+}
+
+const gitRefs = `$(git for-each-ref --format='%(refname:short)' 2>/dev/null)`
+
+func writeBash(w io.Writer, fl []flagInfo) {
+	var names, valued, cmds []string
+	for _, f := range fl {
+		names = append(names, dash(f.name))
+		if f.takesValue {
+			valued = append(valued, dash(f.name))
 		}
-		fmt.Fprintf(w, `# bash completion for sprout
+	}
+	var subs strings.Builder
+	for _, c := range subcommands {
+		cmds = append(cmds, c.name)
+		var cf []string
+		for _, f := range c.flags {
+			cf = append(cf, dash(f.name))
+		}
+		files := "COMPREPLY=()"
+		if c.files {
+			files = `COMPREPLY=($(compgen -f -- "$cur"))`
+		}
+		fmt.Fprintf(&subs, "            %s) [[ \"$cur\" == -* ]] && COMPREPLY=($(compgen -W \"%s\" -- \"$cur\")) || %s; return ;;\n",
+			c.name, strings.Join(cf, " "), files)
+	}
+	fmt.Fprintf(w, `# bash completion for sprout
 _sprout() {
     local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD-1]}"
     case "$prev" in
         --sort) COMPREPLY=($(compgen -W "%s" -- "$cur")); return ;;
         --completion) COMPREPLY=($(compgen -W "bash zsh fish powershell" -- "$cur")); return ;;
-        --diff) COMPREPLY=($(compgen -W "$(git for-each-ref --format='%%(refname:short)' 2>/dev/null)" -- "$cur")); return ;;
+        --diff|--commit) COMPREPLY=($(compgen -W "%s HEAD" -- "$cur")); return ;;
         %s) return ;;
     esac
+    if [[ $COMP_CWORD -gt 1 ]]; then
+        case "${COMP_WORDS[1]}" in
+%s        esac
+    fi
     if [[ "$cur" == -* ]]; then
         COMPREPLY=($(compgen -W "%s" -- "$cur"))
         return
     fi
-    [[ $COMP_CWORD -eq 1 ]] && COMPREPLY=($(compgen -W "mcp" -- "$cur"))
+    [[ $COMP_CWORD -eq 1 ]] && COMPREPLY=($(compgen -W "%s" -- "$cur"))
     COMPREPLY+=($(compgen -d -- "$cur"))
 }
 complete -o filenames -F _sprout sprout
-`, sortValues, strings.Join(valued, "|"), strings.Join(names, " "))
-	case "zsh":
-		fmt.Fprintln(w, "#compdef sprout\n\n_sprout() {\n  _arguments -s \\")
-		for _, f := range fl {
-			desc := zshEscape(f.usage)
-			switch {
-			case f.name == "sort":
-				fmt.Fprintf(w, "    '--sort=[%s]:order:(%s)' \\\n", desc, sortValues)
-			case f.name == "completion":
-				fmt.Fprintf(w, "    '--completion=[%s]:shell:(bash zsh fish powershell)' \\\n", desc)
-			case f.name == "diff":
-				fmt.Fprintf(w, "    '--diff=[%s]:revision:->refs' \\\n", desc)
-			case f.takesValue:
-				fmt.Fprintf(w, "    '%s=[%s]:value:' \\\n", dash(f.name), desc)
-			default:
-				fmt.Fprintf(w, "    '%s[%s]' \\\n", dash(f.name), desc)
-			}
+`, sortValues, gitRefs, strings.Join(valued, "|"), subs.String(), strings.Join(names, " "), strings.Join(cmds, " "))
+}
+
+func writeZsh(w io.Writer, fl []flagInfo) {
+	zflag := func(f flagInfo, dashes string) string {
+		desc := zshEscape(f.usage)
+		switch {
+		case f.name == "sort":
+			return fmt.Sprintf("'--sort=[%s]:order:(%s)'", desc, sortValues)
+		case f.name == "completion":
+			return fmt.Sprintf("'--completion=[%s]:shell:(bash zsh fish powershell)'", desc)
+		case f.name == "diff" || f.name == "commit":
+			return fmt.Sprintf("'--%s=[%s]:revision:->refs'", f.name, desc)
+		case f.takesValue:
+			return fmt.Sprintf("'%s%s=[%s]:value:'", dashes, f.name, desc)
 		}
-		fmt.Fprint(w, `    '1:directory or repository:_files -/' && return
+		return fmt.Sprintf("'%s%s[%s]'", dashes, f.name, desc)
+	}
+	fmt.Fprint(w, "#compdef sprout\n\n_sprout() {\n  local state\n  if (( CURRENT > 2 )); then\n    case $words[2] in\n")
+	for _, c := range subcommands {
+		fmt.Fprintf(w, "      %s) _arguments -s", c.name)
+		for _, f := range c.flags {
+			fmt.Fprint(w, " "+zflag(f, "--"))
+		}
+		if c.files {
+			fmt.Fprint(w, " '*:file:_files'")
+		}
+		fmt.Fprint(w, " ;;\n")
+	}
+	fmt.Fprint(w, "    esac\n  else\n    _arguments -s \\\n")
+	for _, f := range fl {
+		d := "--"
+		if len(f.name) == 1 {
+			d = "-"
+		}
+		fmt.Fprintf(w, "      %s \\\n", zflag(f, d))
+	}
+	var cmds []string
+	for _, c := range subcommands {
+		cmds = append(cmds, c.name+`\:"`+zshEscape(c.about)+`"`)
+	}
+	fmt.Fprintf(w, `      '1: :->first'
+  fi
   case $state in
-    refs) compadd -- ${(f)"$(git for-each-ref --format='%(refname:short)' 2>/dev/null)"} ;;
+    refs) compadd -- ${(f)"%s"} HEAD ;;
+    first) _alternative 'commands:command:((%s))' 'dirs:directory or repository:_files -/' ;;
   esac
 }
 
 compdef _sprout sprout
-`)
-	case "fish":
-		fmt.Fprintln(w, "# fish completion for sprout\ncomplete -c sprout -f -a '(__fish_complete_directories)'")
-		for _, f := range fl {
-			opt := "-l " + f.name
-			if len(f.name) == 1 {
-				opt = "-s " + f.name
-			}
+`, gitRefs, strings.Join(cmds, " "))
+}
+
+func writeFish(w io.Writer, fl []flagInfo) {
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `\'`) + "'" }
+	fmt.Fprintln(w, "# fish completion for sprout")
+	fmt.Fprintln(w, "complete -c sprout -f -n '__fish_use_subcommand' -a '(__fish_complete_directories)'")
+	for _, c := range subcommands {
+		fmt.Fprintf(w, "complete -c sprout -f -n '__fish_use_subcommand' -a %s -d %s\n", c.name, quote(c.about))
+		if c.files {
+			fmt.Fprintf(w, "complete -c sprout -F -n '__fish_seen_subcommand_from %s'\n", c.name)
+		}
+		for _, f := range c.flags {
 			extra := ""
 			switch {
-			case f.name == "sort":
-				extra = " -x -a '" + sortValues + "'"
-			case f.name == "completion":
-				extra = " -x -a 'bash zsh fish powershell'"
-			case f.name == "diff":
-				extra = " -x -a '(git for-each-ref --format=\"%(refname:short)\" 2>/dev/null)'"
+			case f.name == "diff" || f.name == "commit":
+				extra = " -x -a '(git for-each-ref --format=\"%(refname:short)\" 2>/dev/null) HEAD'"
 			case f.takesValue:
 				extra = " -r"
 			}
-			fmt.Fprintf(w, "complete -c sprout %s%s -d '%s'\n", opt, extra, strings.ReplaceAll(f.usage, "'", `\'`))
+			fmt.Fprintf(w, "complete -c sprout -n '__fish_seen_subcommand_from %s' -l %s%s -d %s\n", c.name, f.name, extra, quote(f.usage))
 		}
-	case "powershell":
-		var names []string
-		for _, f := range fl {
-			names = append(names, "'"+dash(f.name)+"'")
+	}
+	for _, f := range fl {
+		opt := "-l " + f.name
+		if len(f.name) == 1 {
+			opt = "-s " + f.name
 		}
-		fmt.Fprintf(w, `# PowerShell completion for sprout: add to $PROFILE
+		extra := ""
+		switch {
+		case f.name == "sort":
+			extra = " -x -a '" + sortValues + "'"
+		case f.name == "completion":
+			extra = " -x -a 'bash zsh fish powershell'"
+		case f.name == "diff":
+			extra = " -x -a '(git for-each-ref --format=\"%(refname:short)\" 2>/dev/null)'"
+		case f.takesValue:
+			extra = " -r"
+		}
+		fmt.Fprintf(w, "complete -c sprout -n '__fish_use_subcommand' %s%s -d %s\n", opt, extra, quote(f.usage))
+	}
+}
+
+func writePowerShell(w io.Writer, fl []flagInfo) {
+	var names, subs []string
+	for _, f := range fl {
+		names = append(names, "'"+dash(f.name)+"'")
+	}
+	for _, c := range subcommands {
+		var cf []string
+		for _, f := range c.flags {
+			cf = append(cf, "'"+dash(f.name)+"'")
+		}
+		subs = append(subs, fmt.Sprintf("        '%s' = @(%s)", c.name, strings.Join(cf, ", ")))
+	}
+	fmt.Fprintf(w, `# PowerShell completion for sprout: add to $PROFILE
 Register-ArgumentCompleter -Native -CommandName sprout -ScriptBlock {
     param($wordToComplete, $commandAst, $cursorPosition)
-    $flags = @(%s)
-    $flags | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
-        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterName', $_)
+    $subcommands = @{
+%s
+    }
+    $words = @($commandAst.CommandElements | Select-Object -Skip 1 | ForEach-Object { $_.ToString() })
+    if ($words.Count -gt 0 -and $subcommands.ContainsKey($words[0]) -and $words[0] -ne $wordToComplete) {
+        $candidates = $subcommands[$words[0]]
+    } elseif ($wordToComplete -like '-*') {
+        $candidates = @(%s)
+    } else {
+        $candidates = @($subcommands.Keys)
+    }
+    $candidates | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+        [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
     }
 }
-`, strings.Join(names, ", "))
-	default:
-		return fmt.Errorf("--completion supports bash, zsh, fish and powershell, not %q", shell)
-	}
-	return nil
+`, strings.Join(subs, "\n"), strings.Join(names, ", "))
 }
 
 func zshEscape(s string) string {
