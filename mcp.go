@@ -35,6 +35,9 @@ type mcpTool struct {
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
 	args        func(a toolArgs) ([]string, error)
+	// run, when set, runs a subcommand against the project root instead of
+	// the default view of a directory. File arguments are already confined.
+	run func(args []string, root string, out, errOut io.Writer) int
 }
 
 type toolArgs struct {
@@ -46,6 +49,12 @@ type toolArgs struct {
 	Churn  bool   `json:"churn"`
 	Since  string `json:"since"`
 	Rev    string `json:"rev"`
+
+	File    string   `json:"file"`
+	Files   []string `json:"files"`
+	Staged  bool     `json:"staged"`
+	Commit  string   `json:"commit"`
+	NoTests bool     `json:"noTests"`
 }
 
 func schema(props map[string]any, required ...string) map[string]any {
@@ -130,6 +139,83 @@ var mcpTools = []mcpTool{
 			return args, nil
 		},
 	},
+}
+
+// graphTools answer questions about the dependency graph. Paths are
+// relative to the project root.
+var graphTools = []mcpTool{
+	{
+		Name: "dependents",
+		Description: "Which files depend on a file, with why: the import, or for Go the names they use. " +
+			"Tests included. Use before changing a file to see what relies on it.",
+		InputSchema: fileSchema(map[string]any{
+			"depth":   map[string]any{"type": "integer", "description": "Hops to follow (default 1; -1 for all)."},
+			"noTests": map[string]any{"type": "boolean", "description": "Leave test files out."},
+		}),
+		args: func(a toolArgs) ([]string, error) { return queryArgs(a), nil },
+		run: func(args []string, root string, out, errOut io.Writer) int {
+			return runQuery("dependents", args, root, out, errOut)
+		},
+	},
+	{
+		Name:        "deps",
+		Description: "Which files a file depends on, with why. Use to understand what a file builds on.",
+		InputSchema: fileSchema(map[string]any{
+			"depth": map[string]any{"type": "integer", "description": "Hops to follow (default 1; -1 for all)."},
+		}),
+		args: func(a toolArgs) ([]string, error) { return queryArgs(a), nil },
+		run: func(args []string, root string, out, errOut io.Writer) int {
+			return runQuery("deps", args, root, out, errOut)
+		},
+	},
+	{
+		Name: "impact",
+		Description: "What a change could break: every file depending on the changed ones, directly or through " +
+			"others, and the tests to run (with a go test command for Go). The change is the given files, or " +
+			"from git: uncommitted changes (default), staged, a revision range, or one commit. " +
+			"Use after editing, before running tests or opening a pull request.",
+		InputSchema: map[string]any{"type": "object", "properties": map[string]any{
+			"files":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Changed files, relative to the project root."},
+			"staged": map[string]any{"type": "boolean", "description": "Use the staged changes."},
+			"rev":    map[string]any{"type": "string", "description": "Use the changes in a revision range, e.g. 'main...HEAD'."},
+			"commit": map[string]any{"type": "string", "description": "Use the changes in one commit, e.g. 'HEAD'."},
+			"all":    map[string]any{"type": "boolean", "description": "List every affected file, not just direct dependents."},
+		}},
+		args: func(a toolArgs) ([]string, error) {
+			args := append([]string{}, a.Files...)
+			switch {
+			case a.Staged:
+				args = append(args, "--staged")
+			case a.Rev != "":
+				args = append(args, "--diff", a.Rev)
+			case a.Commit != "":
+				args = append(args, "--commit", a.Commit)
+			}
+			if a.All {
+				args = append(args, "--all")
+			}
+			return args, nil
+		},
+		run: runImpact,
+	},
+}
+
+func init() { mcpTools = append(mcpTools, graphTools...) }
+
+func fileSchema(props map[string]any) map[string]any {
+	props["file"] = map[string]any{"type": "string", "description": "File path relative to the project root."}
+	return map[string]any{"type": "object", "properties": props, "required": []string{"file"}}
+}
+
+func queryArgs(a toolArgs) []string {
+	args := []string{a.File}
+	if a.Depth != nil {
+		args = append(args, "--depth", strconv.Itoa(*a.Depth))
+	}
+	if a.NoTests {
+		args = append(args, "--no-tests")
+	}
+	return args
 }
 
 func serveMCP(args []string, in io.Reader, out, errOut io.Writer) int {
@@ -232,6 +318,9 @@ func callTool(root string, tool mcpTool, raw json.RawMessage) (string, error) {
 			return "", fmt.Errorf("invalid arguments: %v", err)
 		}
 	}
+	if tool.run != nil {
+		return callGraphTool(root, tool, a)
+	}
 	dir, err := confine(root, a.Path)
 	if err != nil {
 		return "", err
@@ -247,6 +336,45 @@ func callTool(root string, tool mcpTool, raw json.RawMessage) (string, error) {
 	// Show the path the agent asked for, not the user's absolute home path.
 	shown := filepath.ToSlash(filepath.Join(".", a.Path))
 	return strings.Replace(out.String(), dir, shown, 1), nil
+}
+
+// callGraphTool confines every file argument to the root, then runs the
+// tool's subcommand against the root.
+func callGraphTool(root string, tool mcpTool, a toolArgs) (string, error) {
+	if tool.Name != "impact" && a.File == "" {
+		return "", fmt.Errorf("file is required")
+	}
+	confineFile := func(p string) (string, error) {
+		if strings.HasPrefix(p, "-") {
+			return "", fmt.Errorf("invalid file %q", p)
+		}
+		return confine(root, p)
+	}
+	var err error
+	if a.File != "" {
+		if a.File, err = confineFile(a.File); err != nil {
+			return "", err
+		}
+	}
+	for i, f := range a.Files {
+		if a.Files[i], err = confineFile(f); err != nil {
+			return "", err
+		}
+	}
+	for _, rev := range []string{a.Rev, a.Commit} {
+		if strings.HasPrefix(rev, "-") {
+			return "", fmt.Errorf("invalid revision %q", rev)
+		}
+	}
+	args, err := tool.args(a)
+	if err != nil {
+		return "", err
+	}
+	var out, errOut bytes.Buffer
+	if code := tool.run(args, root, &out, &errOut); code != 0 {
+		return "", fmt.Errorf("%s", strings.TrimSpace(errOut.String()))
+	}
+	return out.String(), nil
 }
 
 func resolveRoot(root string) (string, error) {

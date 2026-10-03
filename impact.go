@@ -28,7 +28,9 @@ type impactResult struct {
 	GoPackages    []string   `json:"goTestPackages,omitempty"`
 }
 
-func runImpact(args []string, stdout, stderr io.Writer) int {
+// runImpact runs impact. root is the project root; "" finds it from the
+// first file, or the current directory.
+func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sprout impact", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
@@ -77,7 +79,9 @@ func runImpact(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	root := projectRoot(start)
+	if root == "" {
+		root = projectRoot(start)
+	}
 
 	// The changed paths, relative to root.
 	var changed, deleted []string

@@ -55,7 +55,7 @@ func TestMCPHandshakeAndTools(t *testing.T) {
 	if v := resps[1]["result"].(map[string]any)["protocolVersion"]; v != "2025-06-18" {
 		t.Errorf("protocolVersion = %v", v)
 	}
-	if n := len(resps[2]["result"].(map[string]any)["tools"].([]any)); n != 4 {
+	if n := len(resps[2]["result"].(map[string]any)["tools"].([]any)); n != 7 {
 		t.Errorf("tools/list returned %d tools", n)
 	}
 	if text, isErr := toolText(t, resps[3]); isErr || !strings.Contains(text, "## structure") {
@@ -98,6 +98,59 @@ func TestMCPDiffRejectsInjection(t *testing.T) {
 	resps := mcpSession(t, dir, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"diff_tree","arguments":{"rev":"--output=pwned"}}}`)
 	if _, isErr := toolText(t, resps[1]); !isErr {
 		t.Error("option-like rev must be rejected")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pwned")); err == nil {
+		t.Error("git wrote a file from an injected option")
+	}
+}
+
+func TestMCPGraphTools(t *testing.T) {
+	dir := impactRepo(t)
+	write(t, dir, "web/x.ts", "export const x = 3;\n")
+	resps := mcpSession(t, dir,
+		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"dependents","arguments":{"file":"a/a.go","depth":2}}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"deps","arguments":{"file":"web/y.ts"}}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"impact","arguments":{}}}`,
+		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"impact","arguments":{"files":["a/a.go"]}}}`,
+	)
+	for id, want := range map[float64][]string{
+		1: {"3 files (1 test) depend on a/a.go", "c/c.go       via b/b.go · uses b.B"},
+		2: {"web/y.ts depends on 1 file", "web/x.ts  imports ./x.js"},
+		3: {"(uncommitted changes)", "web/x.ts", "web/y.ts  imports ./x.js"},
+		4: {"Affected: 2 files, 1 directly", "go test ./b"},
+	} {
+		text, isErr := toolText(t, resps[id])
+		if isErr {
+			t.Errorf("call %v failed: %s", id, text)
+		}
+		for _, w := range want {
+			if !strings.Contains(text, w) {
+				t.Errorf("call %v: missing %q in:\n%s", id, w, text)
+			}
+		}
+		if strings.Contains(text, dir) {
+			t.Errorf("call %v leaked the absolute root: %s", id, text)
+		}
+	}
+}
+
+func TestMCPGraphToolsConfineFiles(t *testing.T) {
+	dir := impactRepo(t)
+	outside := filepath.Join(t.TempDir(), "x.go")
+	os.WriteFile(outside, []byte("package x\n"), 0o644)
+	for _, call := range []string{
+		`{"name":"dependents","arguments":{"file":"../x.go"}}`,
+		`{"name":"deps","arguments":{"file":"` + filepath.ToSlash(outside) + `"}}`,
+		`{"name":"deps","arguments":{"file":"--json"}}`,
+		`{"name":"deps","arguments":{}}`,
+		`{"name":"impact","arguments":{"files":["../../etc/passwd"]}}`,
+		`{"name":"impact","arguments":{"rev":"--output=pwned"}}`,
+		`{"name":"impact","arguments":{"commit":"-x"}}`,
+	} {
+		resps := mcpSession(t, dir, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":`+call+`}`)
+		if text, isErr := toolText(t, resps[1]); !isErr {
+			t.Errorf("%s should fail:\n%s", call, text)
+		}
 	}
 	if _, err := os.Stat(filepath.Join(dir, "pwned")); err == nil {
 		t.Error("git wrote a file from an injected option")

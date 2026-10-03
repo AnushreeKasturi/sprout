@@ -220,9 +220,12 @@ claude mcp add sprout -- sprout mcp
 | `reading_order` | The `--entry` list |
 | `tree` | A tree of any folder, with optional git status or churn |
 | `diff_tree` | `--diff` for a revision like `main...HEAD` |
+| `dependents` | What depends on a file, and why |
+| `deps` | What a file depends on, and why |
+| `impact` | What a change could break, and the tests to run: given files, uncommitted, staged, a range or a commit |
 
-The server is read-only. Paths are confined to the project, symlinks included,
-git arguments can't carry options, and it never clones.
+The server is read-only. Paths and file arguments are confined to the project,
+symlinks included, git arguments can't carry options, and it never clones.
 
 ## Config
 
