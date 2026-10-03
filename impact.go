@@ -160,12 +160,12 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	// Tests: the changed tests themselves, and every test that reaches a change.
 	tests := map[string]bool{}
 	for _, id := range ids {
-		if g.Files[id].Test {
+		if runnableTest(g.Files[id]) {
 			tests[g.Files[id].Rel] = true
 		}
 	}
 	for _, h := range res.Affected {
-		if h.Test {
+		if h.Test && runnableTest(g.Files[h.id]) {
 			tests[h.Path] = true
 		}
 	}
@@ -180,6 +180,20 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	}
 	printImpact(stdout, g, res, *all)
 	return 0
+}
+
+// runnableTest reports whether a test file is one you run, rather than a
+// helper living among the tests: in Python, conftest.py and tests/utils/
+// are followed, so tests reached through them are found, but only files
+// named test_*.py or *_test.py are tests to run.
+func runnableTest(f GraphFile) bool {
+	if !f.Test {
+		return false
+	}
+	if base := path.Base(f.Rel); strings.HasSuffix(base, ".py") {
+		return strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py")
+	}
+	return true
 }
 
 // projectGraph builds the dependency graph of root, tests included.
