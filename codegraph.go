@@ -32,14 +32,9 @@ const (
 	maxSourceSize = 512 << 10
 )
 
-func isTestFile(rel string) bool {
-	base := path.Base(rel)
-	return strings.HasSuffix(base, "_test.go") || strings.Contains(base, ".test.") ||
-		strings.Contains(base, ".spec.") || strings.HasPrefix(base, "test_")
-}
-
-// Test code lives in test files or test directories. Fixtures, examples and
-// vendored code aren't the project's own code, so they stay out of the graph.
+// Test code lives in test files or test directories, by each language's
+// convention. Fixtures, examples and vendored code aren't the project's own
+// code, so they stay out of the graph.
 var (
 	testDirs  = map[string]bool{"test": true, "tests": true, "__tests__": true}
 	graphSkip = map[string]bool{"testdata": true, "examples": true, "example": true, "fixtures": true, "vendor": true, "third_party": true}
@@ -63,7 +58,16 @@ func inDir(rel string, dirs map[string]bool) bool {
 	return false
 }
 
-func isTestRel(rel string) bool { return isTestFile(rel) || inDir(rel, testDirs) }
+func isTestRel(rel string) bool {
+	base := path.Base(rel)
+	if strings.HasSuffix(base, ".go") {
+		// In Go only _test.go files are tests: test/ folders and test_*.go
+		// hold shared helpers and e2e frameworks that other code imports.
+		return strings.HasSuffix(base, "_test.go")
+	}
+	return strings.Contains(base, ".test.") || strings.Contains(base, ".spec.") || strings.HasPrefix(base, "test_") ||
+		strings.HasSuffix(base, "_test.py") || inDir(rel, testDirs)
+}
 
 // fileFacts is what one analyzer pass learns about one file.
 type fileFacts struct {

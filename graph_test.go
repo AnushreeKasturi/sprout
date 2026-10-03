@@ -220,3 +220,23 @@ func TestUnguessablePackageNameFallsBack(t *testing.T) {
 		t.Errorf("Deps(main.go) = %v, want the whole package", got)
 	}
 }
+
+// In Go only _test.go files are tests: helpers under test/ are code that
+// tests and e2e suites import, so they're in the graph and can be found.
+func TestGoTestHelpersAreCode(t *testing.T) {
+	g := graphFor(t, map[string]string{
+		"go.mod":                "module ex\n\ngo 1.22\n",
+		"test/utils/helpers.go": "package utils\n\nfunc Help() {}\n",
+		"pkg/x/x.go":            "package x\n\nfunc X() {}\n",
+		"pkg/x/x_test.go":       "package x\n\nimport (\n\t\"testing\"\n\t\"ex/test/utils\"\n)\n\nfunc TestX(t *testing.T) { utils.Help(); X() }\n",
+		"py/tests/test_api.py":  "import os\n",
+		"web/app.spec.ts":       "export {};\n",
+	})
+	for rel, test := range map[string]bool{"test/utils/helpers.go": false, "pkg/x/x_test.go": true, "py/tests/test_api.py": true, "web/app.spec.ts": true} {
+		id, ok := g.ID(rel)
+		if !ok || g.Files[id].Test != test {
+			t.Errorf("%s: in graph %v, test %v; want test %v", rel, ok, ok && g.Files[id].Test, test)
+		}
+	}
+	wantDeps(t, g, "pkg/x/x_test.go", "pkg/x/x.go", "test/utils/helpers.go")
+}
