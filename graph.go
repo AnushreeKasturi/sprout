@@ -33,7 +33,7 @@ type Graph struct {
 	rev    []FileID
 	usedBy []int32 // dependents that aren't tests
 
-	why func(from, to FileID) string // set by the analyzers; see Why
+	why func(from, to FileID) (reason string, names []string) // set by the analyzers; see Why
 }
 
 // Why says what makes from depend on to: the import, or the names it uses.
@@ -43,7 +43,18 @@ func (g *Graph) Why(from, to FileID) string {
 	if g.why == nil {
 		return ""
 	}
-	return g.why(from, to)
+	reason, _ := g.why(from, to)
+	return reason
+}
+
+// UsedNames are the names from declares that from uses, where the analyzer
+// knows them exactly (Go); nil otherwise.
+func (g *Graph) UsedNames(from, to FileID) []string {
+	if g.why == nil {
+		return nil
+	}
+	_, names := g.why(from, to)
+	return names
 }
 
 // ID looks a file up by its relative path.

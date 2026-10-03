@@ -21,7 +21,9 @@ Usage:
   sprout dependents FILE  what depends on FILE, tests included (--no-tests to skip); --json
   sprout impact [FILE...] what a change could affect and the tests to run: the files named,
                           or uncommitted changes; --staged, --diff main...HEAD, --commit REV
-                          (to map a folder named deps, dependents or impact, write ./deps)
+  sprout context FILE     what to know before editing FILE: what it declares, the signatures it
+                          uses from each dependency, its users and tests; --budget N tokens
+                          (to map a folder named like a command, e.g. deps, write ./deps)
 
 Views:
   (default)               tree of the project, respecting .gitignore
@@ -172,6 +174,9 @@ func run(args []string, out, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "impact" {
 		return runImpact(args[1:], "", stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "context" {
+		return runContext(args[1:], "", stdout, stderr)
 	}
 
 	f, path, err := parseFlags(args, stderr)

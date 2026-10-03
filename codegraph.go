@@ -158,7 +158,7 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 // explainer answers Graph.Why by re-reading the two files: for Go, the
 // names one uses from the other; for the rest, the import that resolved to
 // it. Graph.Files[i] is nodes[i]. It isn't safe for concurrent use.
-func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) string {
+func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) (string, []string) {
 	// A query asks about many edges into or out of one file: parse each file once.
 	goCache, specCache := map[FileID]*goFacts{}, map[FileID][]string{}
 	parseGo := func(id FileID) *goFacts {
@@ -172,7 +172,7 @@ func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) string 
 		goCache[id] = gf
 		return gf
 	}
-	return func(from, to FileID) string {
+	return func(from, to FileID) (string, []string) {
 		fn, tn := nodes[from], nodes[to]
 		lang := langOf(fn.Name)
 		if lang != "go" {
@@ -189,15 +189,15 @@ func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) string 
 			for _, spec := range specs {
 				for _, target := range r.resolve(lang, fn.Rel, spec) {
 					if target == tn.Rel {
-						return "imports " + spec
+						return "imports " + spec, nil
 					}
 				}
 			}
-			return ""
+			return "", nil
 		}
 		ff, tf := parseGo(from), parseGo(to)
 		if ff == nil || tf == nil {
-			return ""
+			return "", nil
 		}
 		declared := map[string]bool{}
 		for _, d := range tf.declares {
@@ -210,7 +210,7 @@ func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) string 
 					names = append(names, name)
 				}
 			}
-			return "uses " + someOf(names)
+			return "uses " + someOf(names), names
 		}
 		for _, imp := range ff.imports {
 			if dir, ok := r.goPackageDir(imp.path); !ok || dir != path.Dir(tn.Rel) {
@@ -220,17 +220,19 @@ func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) string 
 			if pkg == "" {
 				pkg = tf.pkg
 			}
+			var shown []string
 			for sel := range ff.selectors {
 				if sel[0] == pkg && declared[sel[1]] {
-					names = append(names, pkg+"."+sel[1])
+					names = append(names, sel[1])
+					shown = append(shown, pkg+"."+sel[1])
 				}
 			}
 			if len(names) == 0 {
-				return "imports " + imp.path
+				return "imports " + imp.path, nil
 			}
-			return "uses " + someOf(names)
+			return "uses " + someOf(shown), names
 		}
-		return ""
+		return "", nil
 	}
 }
 

@@ -170,6 +170,39 @@ Tests: 88 files, 67 Go packages
   go test ./cmd/kube-controller-manager/app ./cmd/kube-controller-manager/app/options ./pkg/controller/garbagecollector ./pkg/controller/storageversionmigrator … +63 more (--all)
 ```
 
+## `context`: before you edit a file
+
+`sprout context FILE` is what to know before changing one file, fitted to a
+token budget (`--budget`, default 1500): the signatures it actually uses from
+each dependency, the files that use it and why, the tests that reach it, then
+what it declares. Agents get it as the `context` MCP tool.
+
+```
+$ sprout context pkg/controller/garbagecollector/garbagecollector.go --budget 700   # in kubernetes
+# pkg/controller/garbagecollector/garbagecollector.go
+27 dependencies · 5 direct users · 60 affected through them · 83 tests reach it
+
+## depends on (and what it uses from each)
+pkg/controller/controller_ref_manager.go — uses c.GenerateDeleteOwnerRefStrategicMergeBytes
+  func GenerateDeleteOwnerRefStrategicMergeBytes(dependentUID types.UID, ownerUIDs []types.UID, finalizers ...string) ([]byte, error)
+pkg/controller/garbagecollector/errors.go — uses restMappingError
+  func (r *restMappingError) Error() string
+  type restMappingError struct
+pkg/controller/garbagecollector/graph.go — uses node, objectReference, ownerReferenceCoordinates
+  type objectReference struct
+  type node struct
+  func (n *node) isBeingDeleted() bool
+  func (n *node) isObserved() bool
+…
+## used by
+cmd/kube-controller-manager/app/core.go — uses garbagecollector.GarbageCollector, garbagecollector.NewComposedGarbageCollector
+pkg/controller/garbagecollector/dump.go — uses GarbageCollector
+pkg/controller/garbagecollector/operations.go — uses GarbageCollector, namespacedOwnerOfClusterScopedObjectErr
+pkg/controller/garbagecollector/patch.go — uses GarbageCollector
+test/integration/util/util.go — uses garbagecollector.NewGarbageCollector
+
+```
+
 ## `--diff`: a pull request as a tree
 
 ```
@@ -223,6 +256,7 @@ claude mcp add sprout -- sprout mcp
 | `dependents` | What depends on a file, and why |
 | `deps` | What a file depends on, and why |
 | `impact` | What a change could break, and the tests to run: given files, uncommitted, staged, a range or a commit |
+| `context` | What to know before editing a file: signatures it uses, its users, its tests |
 
 The server is read-only. Paths and file arguments are confined to the project,
 symlinks included, git arguments can't carry options, and it never clones.

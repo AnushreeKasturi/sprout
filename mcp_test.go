@@ -55,7 +55,7 @@ func TestMCPHandshakeAndTools(t *testing.T) {
 	if v := resps[1]["result"].(map[string]any)["protocolVersion"]; v != "2025-06-18" {
 		t.Errorf("protocolVersion = %v", v)
 	}
-	if n := len(resps[2]["result"].(map[string]any)["tools"].([]any)); n != 7 {
+	if n := len(resps[2]["result"].(map[string]any)["tools"].([]any)); n != 8 {
 		t.Errorf("tools/list returned %d tools", n)
 	}
 	if text, isErr := toolText(t, resps[3]); isErr || !strings.Contains(text, "## structure") {
