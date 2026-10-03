@@ -24,7 +24,7 @@ read projects:
 ```bash
 sprout --ai | pbcopy                     # project context for any chat, ~2k tokens
 sprout --entry                           # where to start reading
-sprout dependents src/auth.ts --depth 2  # what a change here could affect, and why
+sprout impact --diff main...HEAD         # what this branch could break, and the tests to run
 sprout --diff main...HEAD -L 2           # what this branch touched, as a tree
 sprout github.com/owner/repo --ai        # the same, for a repo you haven't cloned
 ```
@@ -140,6 +140,35 @@ resolved from their imports: tsconfig `paths` and workspace packages for
 TypeScript, real source roots for Python, and crates, `use` trees and workspace
 crates for Rust. `tools/accuracy` checks this against each language's own
 tooling. To map a folder named `deps` or `dependents`, write `./deps`.
+
+## `impact`: what a change could break
+
+`sprout impact` traces a change through the graph: every file that depends on
+it, directly or through others, and every test that reaches it, with a ready
+`go test` command for Go. With no arguments it uses your uncommitted changes;
+`--staged`, `--diff main...HEAD` and `--commit HEAD` take them from git, or name
+the files. `--all` lists every affected file and `--json` is for scripts and CI.
+
+```
+$ sprout impact pkg/controller/garbagecollector/graph_builder.go   # in kubernetes
+Impact of 1 changed file (files)
+
+  pkg/controller/garbagecollector/graph_builder.go
+
+Affected: 67 files, 8 directly
+  cmd/kube-controller-manager/app/controllermanager.go          uses garbagecollector.GraphBuilder, garbagecollector.NewDependencyGraphBuilder
+  cmd/kube-controller-manager/app/options/options.go            uses garbagecollector.DefaultIgnoredResources
+  pkg/controller/garbagecollector/dump.go                       uses beingDeleted
+  pkg/controller/garbagecollector/garbagecollector.go           uses GraphBuilder, NewDependencyGraphBuilder, hasDeleteDependentsFinalizer +2 more
+  pkg/controller/garbagecollector/graph.go                      uses beingDeleted
+  pkg/controller/garbagecollector/patch.go                      uses monitors
+  pkg/controller/storageversionmigrator/storageversionmigrator.go  uses garbagecollector.GraphBuilder, garbagecollector.Monitor
+  test/integration/util/util.go                                 uses garbagecollector.DefaultIgnoredResources
+  … and 59 more files through them (--all lists them)
+
+Tests: 88 files, 67 Go packages
+  go test ./cmd/kube-controller-manager/app ./cmd/kube-controller-manager/app/options ./pkg/controller/garbagecollector ./pkg/controller/storageversionmigrator … +63 more (--all)
+```
 
 ## `--diff`: a pull request as a tree
 

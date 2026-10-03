@@ -162,6 +162,15 @@ sprout \- map your codebase, for you and your AI agent
 .IR n ]
 .RB [ \-\-no\-tests ]
 .RB [ \-\-json ]
+.br
+.B sprout impact
+.RI [ file ...]
+.RB [ \-\-staged " | " \-\-diff
+.IR rev " | "
+.B \-\-commit
+.IR rev ]
+.RB [ \-\-all ]
+.RB [ \-\-json ]
 .SH DESCRIPTION
 Sprout prints a directory tree that respects .gitignore and counts what it hides.
 It can mark git changes and commit hotspots in place, show a revision range as a
@@ -172,8 +181,13 @@ Context Protocol.
 \fBsprout deps\fR lists the files a file depends on, and \fBsprout dependents\fR the
 files that depend on it, each with the reason: the import, or for Go the names it
 uses. \fB\-\-depth\fR follows more hops (\-1 for all); results past the first hop say
-which file they were reached through. To map a folder named deps or dependents,
-write ./deps.
+which file they were reached through.
+.PP
+\fBsprout impact\fR lists what a change could affect: every file that depends on the
+changed ones, directly or through others, and the tests that reach them, with a
+\fBgo test\fR command for Go. The change is the files named, or the uncommitted
+changes, \fB\-\-staged\fR, \fB\-\-diff\fR \fIrev\fR or \fB\-\-commit\fR \fIrev\fR.
+To map a folder named deps, dependents or impact, write ./deps.
 .SH OPTIONS
 `, time.Now().UTC().Format("2006-01-02"), r.Replace(resolveVersion()))
 	for _, f := range allFlags() {
@@ -211,6 +225,7 @@ sprout --diff main...HEAD -L 2
 sprout --size --sort size --max-files 5
 sprout github.com/owner/repo --entry
 sprout dependents internal/auth/session.go --depth 2
+sprout impact --diff main...HEAD
 .fi
 .SH SEE ALSO
 .BR tree (1),

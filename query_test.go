@@ -114,14 +114,7 @@ func TestQueryRootWithoutGit(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "x.ts", "export const x = 1;\n")
 	write(t, dir, "sub/y.ts", "import {x} from '../x.js';\n")
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chdir(wd) })
+	chdir(t, dir)
 	out, _, code := runCLI(t, "dependents", "x.ts")
 	if code != 0 || !strings.Contains(out, "sub/y.ts  imports ../x.js") {
 		t.Errorf("exit %d:\n%s", code, out)

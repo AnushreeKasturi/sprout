@@ -21,6 +21,8 @@ type queryHit struct {
 	Via    string `json:"via,omitempty"`    // the file it was reached through, past the first hop
 	Reason string `json:"reason,omitempty"` // the import, or the names used
 	Test   bool   `json:"test,omitempty"`
+
+	id, from FileID // the file, and the one it was reached from
 }
 
 type queryResult struct {
@@ -65,12 +67,11 @@ func runQuery(cmd string, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	root := projectRoot(abs)
-	tree, err := BuildTree(root, Options{MaxDepth: -1, ShowHidden: true, Stat: true})
+	g, err := projectGraph(root)
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1
 	}
-	g := buildGraph(root, tree, true, false)
 	rel, _ := filepath.Rel(root, abs)
 	rel = filepath.ToSlash(rel)
 	id, ok := g.ID(rel)
@@ -79,7 +80,8 @@ func runQuery(cmd string, args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	hits := follow(g, id, cmd == "dependents", *depth, *noTests)
+	hits := follow(g, []FileID{id}, cmd == "dependents", *depth, *noTests)
+	explain(g, hits, cmd == "dependents")
 	if *asJSON {
 		data, _ := json.Marshal(queryResult{1, cmd, rel, *depth, hits})
 		fmt.Fprintf(stdout, "%s\n", data)
@@ -89,15 +91,19 @@ func runQuery(cmd string, args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// follow walks the graph breadth-first from id, so each file is reported at
-// its shortest distance, through the first file that reached it.
-func follow(g *Graph, id FileID, reverse bool, depth int, noTests bool) []queryHit {
+// follow walks the graph breadth-first from the start files, so each file
+// is reported at its shortest distance, through the first file that
+// reached it. Reasons are left for explain, which re-reads files.
+func follow(g *Graph, start []FileID, reverse bool, depth int, noTests bool) []queryHit {
 	next := g.Deps
 	if reverse {
 		next = g.Dependents
 	}
-	seen := map[FileID]bool{id: true}
-	frontier := []FileID{id}
+	seen := map[FileID]bool{}
+	for _, id := range start {
+		seen[id] = true
+	}
+	frontier := start
 	hits := []queryHit{}
 	for d := 1; len(frontier) > 0 && (depth < 0 || d <= depth); d++ {
 		var reached []FileID
@@ -108,14 +114,9 @@ func follow(g *Graph, id FileID, reverse bool, depth int, noTests bool) []queryH
 				}
 				seen[c] = true
 				reached = append(reached, c)
-				h := queryHit{Path: g.Files[c].Rel, Depth: d, Test: g.Files[c].Test}
+				h := queryHit{Path: g.Files[c].Rel, Depth: d, Test: g.Files[c].Test, id: c, from: p}
 				if d > 1 {
 					h.Via = g.Files[p].Rel
-				}
-				if reverse {
-					h.Reason = g.Why(c, p)
-				} else {
-					h.Reason = g.Why(p, c)
 				}
 				hits = append(hits, h)
 			}
@@ -133,6 +134,18 @@ func follow(g *Graph, id FileID, reverse bool, depth int, noTests bool) []queryH
 		return a.Path < b.Path
 	})
 	return hits
+}
+
+// explain fills in why each hit is there.
+func explain(g *Graph, hits []queryHit, reverse bool) {
+	for i := range hits {
+		h := &hits[i]
+		if reverse {
+			h.Reason = g.Why(h.id, h.from)
+		} else {
+			h.Reason = g.Why(h.from, h.id)
+		}
+	}
 }
 
 func printHits(w io.Writer, cmd, rel string, hits []queryHit) {
