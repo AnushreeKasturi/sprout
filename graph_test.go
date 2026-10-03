@@ -165,7 +165,7 @@ func TestGraphWithoutTests(t *testing.T) {
 		write(t, dir, rel, src)
 	}
 	tree, _ := BuildTree(dir, Options{MaxDepth: -1, ShowHidden: true, NoIgnore: true})
-	g := buildGraph(dir, tree, false)
+	g := buildGraph(dir, tree, false, true)
 	for _, f := range g.Files {
 		if f.Test || f.Rel == "vendor/v/v.go" {
 			t.Errorf("%s shouldn't be read when tests are off (or ever, for vendor)", f.Rel)

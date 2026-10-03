@@ -24,6 +24,7 @@ read projects:
 ```bash
 sprout --ai | pbcopy                     # project context for any chat, ~2k tokens
 sprout --entry                           # where to start reading
+sprout dependents src/auth.ts --depth 2  # what a change here could affect, and why
 sprout --diff main...HEAD -L 2           # what this branch touched, as a tree
 sprout github.com/owner/repo --ai        # the same, for a repo you haven't cloned
 ```
@@ -109,6 +110,34 @@ Reading order for bubbletea
   4. tea.go                      used by 25 files
   5. mouse.go                    used by 7 files
 ```
+
+## `deps` and `dependents`: what a file touches
+
+`sprout deps FILE` lists what a file depends on, and `sprout dependents FILE` what
+depends on it, tests included. Each line says why: the import, or for Go, the
+names it actually uses. `--depth N` follows more hops (`-1` for all), `--no-tests`
+skips test files, and `--json` is for scripts.
+
+```
+$ sprout dependents graph.go --depth 2
+11 files (6 tests) depend on graph.go
+
+  ai.go              uses Graph
+  codegraph.go       uses FileID, Graph, GraphFile +2 more
+  entry.go           uses FileID, Graph
+  query.go           uses FileID, Graph
+  codegraph_test.go  test · uses Graph
+  graph_test.go      test · uses FileID, Graph, GraphFile +1 more
+  graphdump_test.go  test · uses FileID
+  main.go            via ai.go · uses AIMap
+  ai_test.go         test · via ai.go · uses estimateTokens
+  bench_test.go      test · via codegraph.go · uses buildGraph
+  query_test.go      test · via query.go · uses queryResult
+```
+
+Go is resolved to the file that declares what's used. Other languages are
+resolved from their import statements, so path aliases (tsconfig `paths`) aren't
+followed yet. To map a folder named `deps` or `dependents`, write `./deps`.
 
 ## `--diff`: a pull request as a tree
 

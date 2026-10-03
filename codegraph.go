@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	goprinter "go/printer"
@@ -74,8 +75,9 @@ type fileFacts struct {
 // buildGraph analyzes the source files in t. With tests, test files join
 // the graph too, so each file's tests can be found; --entry and --ai don't
 // need them and skip reading them, which on Go-heavy repos is a third of
-// the parsing.
-func buildGraph(root string, t *Tree, tests bool) *Graph {
+// the parsing. With symbols, each file keeps its declarations' signatures,
+// which only --ai prints.
+func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 	var nodes []*Node
 	var goMods []*Node
 	walk(t.Root, func(n *Node) {
@@ -112,7 +114,7 @@ func buildGraph(root string, t *Tree, tests bool) *Graph {
 		go func() {
 			defer wg.Done()
 			for i := range next {
-				facts[i] = parseSource(nodes[i], t.FSPath(nodes[i]), !b.files[i].Test, r)
+				facts[i] = parseSource(nodes[i], t.FSPath(nodes[i]), symbols && !b.files[i].Test, r)
 			}
 		}()
 	}
@@ -129,7 +131,94 @@ func buildGraph(root string, t *Tree, tests bool) *Graph {
 		}
 	}
 	linkGo(b, facts, r)
-	return b.build()
+	g := b.build()
+	g.why = explainer(t, nodes, r)
+	return g
+}
+
+// explainer answers Graph.Why by re-reading the two files: for Go, the
+// names one uses from the other; for the rest, the import that resolved to
+// it. Graph.Files[i] is nodes[i]. It isn't safe for concurrent use.
+func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) string {
+	// A query asks about many edges into or out of one file: parse each file once.
+	goCache, specCache := map[FileID]*goFacts{}, map[FileID][]string{}
+	parseGo := func(id FileID) *goFacts {
+		if gf, ok := goCache[id]; ok {
+			return gf
+		}
+		var gf *goFacts
+		if src, err := os.ReadFile(t.FSPath(nodes[id])); err == nil {
+			_, gf = goDecls(nodes[id].Name, src, false)
+		}
+		goCache[id] = gf
+		return gf
+	}
+	return func(from, to FileID) string {
+		fn, tn := nodes[from], nodes[to]
+		lang := langOf(fn.Name)
+		if lang != "go" {
+			specs, ok := specCache[from]
+			if !ok {
+				if src, err := os.ReadFile(t.FSPath(fn)); err == nil {
+					_, specs = scanDecls(lang, src)
+				}
+				specCache[from] = specs
+			}
+			for _, spec := range specs {
+				for _, target := range r.resolve(lang, fn.Rel, spec) {
+					if target == tn.Rel {
+						return "imports " + spec
+					}
+				}
+			}
+			return ""
+		}
+		ff, tf := parseGo(from), parseGo(to)
+		if ff == nil || tf == nil {
+			return ""
+		}
+		declared := map[string]bool{}
+		for _, d := range tf.declares {
+			declared[d] = true
+		}
+		var names []string
+		if path.Dir(fn.Rel) == path.Dir(tn.Rel) && ff.pkg == tf.pkg {
+			for name := range ff.uses {
+				if declared[name] {
+					names = append(names, name)
+				}
+			}
+			return "uses " + someOf(names)
+		}
+		for _, imp := range ff.imports {
+			if dir, ok := r.goPackageDir(imp.path); !ok || dir != path.Dir(tn.Rel) {
+				continue
+			}
+			pkg := imp.name
+			if pkg == "" {
+				pkg = tf.pkg
+			}
+			for sel := range ff.selectors {
+				if sel[0] == pkg && declared[sel[1]] {
+					names = append(names, pkg+"."+sel[1])
+				}
+			}
+			if len(names) == 0 {
+				return "imports " + imp.path
+			}
+			return "uses " + someOf(names)
+		}
+		return ""
+	}
+}
+
+// someOf lists up to three names, sorted, and counts the rest.
+func someOf(names []string) string {
+	sort.Strings(names)
+	if len(names) <= 3 {
+		return strings.Join(names, ", ")
+	}
+	return strings.Join(names[:3], ", ") + fmt.Sprintf(" +%d more", len(names)-3)
 }
 
 // parseSource reads one file and resolves what it can on its own. The

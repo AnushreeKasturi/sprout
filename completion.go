@@ -148,12 +148,32 @@ sprout \- map your codebase, for you and your AI agent
 .br
 .B sprout mcp
 .RI [ root ]
+.br
+.B sprout deps
+.I file
+.RB [ \-\-depth
+.IR n ]
+.RB [ \-\-no\-tests ]
+.RB [ \-\-json ]
+.br
+.B sprout dependents
+.I file
+.RB [ \-\-depth
+.IR n ]
+.RB [ \-\-no\-tests ]
+.RB [ \-\-json ]
 .SH DESCRIPTION
 Sprout prints a directory tree that respects .gitignore and counts what it hides.
 It can mark git changes and commit hotspots in place, show a revision range as a
 tree, suggest a reading order, and print a compact, token\-budgeted project map
 for LLMs. \fBsprout mcp\fR serves the same views to coding agents over the Model
 Context Protocol.
+.PP
+\fBsprout deps\fR lists the files a file depends on, and \fBsprout dependents\fR the
+files that depend on it, each with the reason: the import, or for Go the names it
+uses. \fB\-\-depth\fR follows more hops (\-1 for all); results past the first hop say
+which file they were reached through. To map a folder named deps or dependents,
+write ./deps.
 .SH OPTIONS
 `, time.Now().UTC().Format("2006-01-02"), r.Replace(resolveVersion()))
 	for _, f := range allFlags() {
@@ -190,6 +210,7 @@ sprout --ai | pbcopy
 sprout --diff main...HEAD -L 2
 sprout --size --sort size --max-files 5
 sprout github.com/owner/repo --entry
+sprout dependents internal/auth/session.go --depth 2
 .fi
 .SH SEE ALSO
 .BR tree (1),
