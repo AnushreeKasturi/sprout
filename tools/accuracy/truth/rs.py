@@ -3,8 +3,9 @@
 There's no lightweight compiler tool to ask, so this follows the rules the
 compiler uses, without macros or cfg:
 
-- Every crate root (src/lib.rs, src/main.rs, src/bin/*, tests/*, benches/*,
-  examples/*, or paths set in Cargo.toml) starts a module tree. "mod x;"
+- Every crate root (src/lib.rs, src/main.rs, paths set in Cargo.toml, and,
+  unless autobins/autotests/... = false, src/bin/*, tests/*, benches/*,
+  examples/*) starts a module tree. "mod x;"
   means x.rs or x/mod.rs next to lib.rs, main.rs or mod.rs, and inside a
   folder named after any other file; #[path] overrides that. Inline
   "mod x { ... }" blocks nest modules inside a file.
@@ -87,10 +88,11 @@ for d, dirs, names in os.walk(repo):
     lib_path = j(lib["path"]) if "path" in lib else j("src/lib.rs")
     if isfile(lib_path):
         crates.append((lib.get("name", name).replace("-", "_"), lib_path, True))
-    roots = [j("src/main.rs")] + [j(b["path"]) for b in cargo.get("bin", []) if "path" in b]
-    for sub in ("src/bin", "tests", "benches", "examples"):
+    roots = [j("src/main.rs")] + [j(t["path"]) for kind in ("bin", "test", "bench", "example") for t in cargo.get(kind, []) if "path" in t]
+    pkg = cargo["package"]
+    for sub, auto in (("src/bin", "autobins"), ("tests", "autotests"), ("benches", "autobenches"), ("examples", "autoexamples")):
         p = os.path.join(repo, j(sub))
-        if os.path.isdir(p):
+        if os.path.isdir(p) and pkg.get(auto, True):
             for e in sorted(os.listdir(p)):
                 if e.endswith(".rs"):
                     roots.append(j(sub, e))

@@ -9,6 +9,7 @@ Needs Go, Node and Python 3.11+; see README.md for what each number means.
 """
 
 import collections
+import re
 import json
 import os
 import subprocess
@@ -48,9 +49,12 @@ def truth(lang, repo_dir, graph_file):
 
 
 def spec_match(lang, sprout, want):
-    if lang == "rs":  # the scanner keeps "crate::a::" from "use crate::a::{b, c}"
-        s = sprout.rstrip(":")
-        return want == s or want.startswith(s + "::")
+    if lang == "rs":
+        # Inside an inline module Sprout writes super::x as the equivalent
+        # self::x, relative to the file; compare paths without that prefix.
+        bare = lambda p: re.sub(r"^((self|super)::)+", "", p.rstrip(":"))
+        s, w = bare(sprout), bare(want)
+        return w == s or w.startswith(s + "::")
     return sprout == want
 
 
