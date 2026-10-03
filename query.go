@@ -91,7 +91,7 @@ func runQuery(cmd string, args []string, root string, stdout, stderr io.Writer) 
 		fmt.Fprintf(stdout, "%s\n", data)
 		return 0
 	}
-	printHits(stdout, cmd, rel, hits)
+	printHits(stdout, g, cmd, rel, hits)
 	return 0
 }
 
@@ -152,7 +152,7 @@ func explain(g *Graph, hits []queryHit, reverse bool) {
 	}
 }
 
-func printHits(w io.Writer, cmd, rel string, hits []queryHit) {
+func printHits(w io.Writer, g *Graph, cmd, rel string, hits []queryHit) {
 	tests := 0
 	width := 0
 	for _, h := range hits {
@@ -181,7 +181,11 @@ func printHits(w io.Writer, cmd, rel string, hits []queryHit) {
 	for _, h := range hits {
 		var why []string
 		if h.Test {
-			why = append(why, "test")
+			if runnableTest(g.Files[h.id]) {
+				why = append(why, "test")
+			} else {
+				why = append(why, "test helper")
+			}
 		}
 		if h.Via != "" {
 			why = append(why, "via "+h.Via)
