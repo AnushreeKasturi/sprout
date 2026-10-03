@@ -80,7 +80,7 @@ type fileFacts struct {
 func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 	var nodes []*Node
 	var goMods []*Node
-	var jsConfigs, jsManifests, pyRoots []string
+	var jsConfigs, jsManifests, pyRoots, cargos []string
 	walk(t.Root, func(n *Node) {
 		if n.IsDir || n.Missing {
 			return
@@ -90,6 +90,8 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 			jsConfigs = append(jsConfigs, n.Rel)
 		case "package.json":
 			jsManifests = append(jsManifests, n.Rel)
+		case "Cargo.toml":
+			cargos = append(cargos, n.Rel)
 		case "pyproject.toml", "setup.py", "setup.cfg":
 			pyRoots = append(pyRoots, path.Dir(n.Rel), path.Join(path.Dir(n.Rel), "src"))
 		}
@@ -113,6 +115,7 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 		exists[n.Rel] = true
 	}
 	r := resolver{exists: exists, goModules: goModules(t, goMods), javaIndex: javaIndex(nodes), pyRoots: pyRoots}
+	r.rs = loadRSProject(cargos, func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) }, exists)
 	if len(jsConfigs)+len(jsManifests) > 0 {
 		r.js = loadJSProject(jsConfigs, jsManifests, func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) })
 	}
@@ -173,6 +176,9 @@ func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) string 
 			if !ok {
 				if src, err := os.ReadFile(t.FSPath(fn)); err == nil {
 					_, specs = scanDecls(lang, src)
+					if lang == "rs" {
+						specs = append(specs, rsCodePaths(src)...)
+					}
 				}
 				specCache[from] = specs
 			}
@@ -251,6 +257,9 @@ func parseSource(n *Node, fsPath string, wantSymbols bool, r resolver) fileFacts
 	}
 	var specs []string
 	f.symbols, specs = scanDecls(lang, src)
+	if lang == "rs" {
+		specs = append(specs, rsCodePaths(src)...)
+	}
 	if !wantSymbols {
 		f.symbols = nil
 	}
@@ -584,10 +593,6 @@ var importPatterns = map[string][]*regexp.Regexp{
 		regexp.MustCompile(`import\s*\(?\s*['"]([^'"]+)['"]`),
 		regexp.MustCompile(`require\(\s*['"]([^'"]+)['"]\s*\)`),
 	},
-	"rs": {
-		regexp.MustCompile(`^\s*(?:pub\s+)?mod\s+(\w+)\s*;`),
-		regexp.MustCompile(`^\s*(?:pub\s+)?use\s+(crate::[\w:]+)`),
-	},
 	"java": {regexp.MustCompile(`^\s*import\s+(?:static\s+)?([\w.]+)\s*;`)},
 	"kt":   {regexp.MustCompile(`^\s*import\s+([\w.]+)`)},
 }
@@ -600,7 +605,7 @@ func scanDecls(lang string, src []byte) (symbols, imports []string) {
 				break
 			}
 		}
-		if lang != "js" && lang != "py" {
+		if lang != "js" && lang != "py" && lang != "rs" {
 			for _, re := range importPatterns[lang] {
 				for _, m := range re.FindAllStringSubmatch(line, -1) {
 					imports = append(imports, m[1])
@@ -613,6 +618,8 @@ func scanDecls(lang string, src []byte) (symbols, imports []string) {
 		imports = jsImports(src)
 	case "py":
 		imports = pyImports(src)
+	case "rs":
+		imports = rsImports(src)
 	}
 	return symbols, imports
 }
@@ -675,6 +682,7 @@ type resolver struct {
 	javaIndex map[string]string // "com/acme/Foo" -> rel path
 	js        *jsProject
 	pyRoots   []string // folders with a pyproject.toml, setup.py or setup.cfg, and their src/
+	rs        *rsProject
 }
 
 // goPackageDir maps a Go import path to the directory it lives in, if a
@@ -705,28 +713,7 @@ func (r resolver) resolve(lang, from, spec string) []string {
 	case "py":
 		return r.resolvePython(from, spec)
 	case "rs":
-		if name, ok := strings.CutPrefix(spec, "crate::"); ok {
-			// crate::a::b::Item -> src/a/b.rs, src/a/b/mod.rs, src/a.rs, ...
-			parts := strings.Split(name, "::")
-			for i := len(parts); i > 0; i-- {
-				p := path.Join("src", strings.Join(parts[:i], "/"))
-				for _, cand := range []string{p + ".rs", path.Join(p, "mod.rs")} {
-					if r.exists[cand] {
-						return []string{cand}
-					}
-				}
-			}
-			return nil
-		}
-		modDir := dir // `mod x;` in main.rs, lib.rs or mod.rs lives next to it
-		if b := path.Base(from); b != "main.rs" && b != "lib.rs" && b != "mod.rs" {
-			modDir = strings.TrimSuffix(from, ".rs")
-		}
-		for _, cand := range []string{path.Join(modDir, spec+".rs"), path.Join(modDir, spec, "mod.rs")} {
-			if r.exists[cand] {
-				return []string{cand}
-			}
-		}
+		return r.resolveRust(from, spec)
 	case "java", "kt":
 		if f, ok := r.javaIndex[strings.ReplaceAll(spec, ".", "/")]; ok {
 			return []string{f}
