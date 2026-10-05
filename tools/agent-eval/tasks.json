@@ -1,0 +1,170 @@
+[
+ {
+  "id": "fastapi-template:importers:backend/app/core/security.py",
+  "repo": "fastapi-template",
+  "kind": "importers",
+  "file": "backend/app/core/security.py",
+  "answer": [
+   "backend/app/api/deps.py",
+   "backend/app/api/routes/login.py",
+   "backend/app/api/routes/private.py",
+   "backend/app/api/routes/users.py",
+   "backend/app/crud.py",
+   "backend/app/utils.py",
+   "backend/tests/api/routes/test_login.py",
+   "backend/tests/api/routes/test_users.py",
+   "backend/tests/crud/test_user.py"
+  ]
+ },
+ {
+  "id": "fastapi-template:importers:backend/app/core/db.py",
+  "repo": "fastapi-template",
+  "kind": "importers",
+  "file": "backend/app/core/db.py",
+  "answer": [
+   "backend/app/api/deps.py",
+   "backend/app/initial_data.py",
+   "backend/tests/conftest.py"
+  ]
+ },
+ {
+  "id": "fastapi-template:importers:backend/app/crud.py",
+  "repo": "fastapi-template",
+  "kind": "importers",
+  "file": "backend/app/crud.py",
+  "answer": [
+   "backend/app/api/routes/login.py",
+   "backend/app/api/routes/users.py",
+   "backend/app/core/db.py",
+   "backend/tests/api/routes/test_login.py",
+   "backend/tests/api/routes/test_users.py",
+   "backend/tests/crud/test_user.py",
+   "backend/tests/utils/item.py",
+   "backend/tests/utils/user.py"
+  ]
+ },
+ {
+  "id": "fastapi-template:tests:backend/app/models.py",
+  "repo": "fastapi-template",
+  "kind": "tests",
+  "file": "backend/app/models.py",
+  "answer": [
+   "backend/tests/api/routes/test_items.py",
+   "backend/tests/api/routes/test_login.py",
+   "backend/tests/api/routes/test_private.py",
+   "backend/tests/api/routes/test_users.py",
+   "backend/tests/crud/test_user.py"
+  ]
+ },
+ {
+  "id": "fastapi-template:tests:backend/app/core/config.py",
+  "repo": "fastapi-template",
+  "kind": "tests",
+  "file": "backend/app/core/config.py",
+  "answer": [
+   "backend/tests/api/routes/test_items.py",
+   "backend/tests/api/routes/test_login.py",
+   "backend/tests/api/routes/test_private.py",
+   "backend/tests/api/routes/test_users.py",
+   "backend/tests/crud/test_user.py"
+  ]
+ },
+ {
+  "id": "fastapi-template:tests:backend/app/crud.py",
+  "repo": "fastapi-template",
+  "kind": "tests",
+  "file": "backend/app/crud.py",
+  "answer": [
+   "backend/tests/api/routes/test_items.py",
+   "backend/tests/api/routes/test_login.py",
+   "backend/tests/api/routes/test_users.py",
+   "backend/tests/crud/test_user.py"
+  ]
+ },
+ {
+  "id": "ky:importers:source/types/hooks.ts",
+  "repo": "ky",
+  "kind": "importers",
+  "file": "source/types/hooks.ts",
+  "answer": [
+   "source/index.ts",
+   "source/types/options.ts",
+   "source/utils/merge.ts"
+  ]
+ },
+ {
+  "id": "ky:importers:source/types/response.ts",
+  "repo": "ky",
+  "kind": "importers",
+  "file": "source/types/response.ts",
+  "answer": [
+   "source/errors/HTTPError.ts",
+   "source/index.ts",
+   "source/types/ResponsePromise.ts"
+  ]
+ },
+ {
+  "id": "ripgrep:importers:crates/regex/src/config.rs",
+  "repo": "ripgrep",
+  "kind": "importers",
+  "file": "crates/regex/src/config.rs",
+  "answer": [
+   "crates/regex/src/lib.rs",
+   "crates/regex/src/literal.rs",
+   "crates/regex/src/matcher.rs"
+  ]
+ },
+ {
+  "id": "ripgrep:importers:crates/core/flags/doc/version.rs",
+  "repo": "ripgrep",
+  "kind": "importers",
+  "file": "crates/core/flags/doc/version.rs",
+  "answer": [
+   "crates/core/flags/doc/help.rs",
+   "crates/core/flags/doc/man.rs",
+   "crates/core/flags/doc/mod.rs",
+   "crates/core/flags/mod.rs"
+  ]
+ },
+ {
+  "id": "ripgrep:importers:crates/ignore/src/dir.rs",
+  "repo": "ripgrep",
+  "kind": "importers",
+  "file": "crates/ignore/src/dir.rs",
+  "answer": [
+   "crates/ignore/src/incremental.rs",
+   "crates/ignore/src/lib.rs",
+   "crates/ignore/src/walk.rs"
+  ]
+ },
+ {
+  "id": "ripgrep:tests:crates/globset/src/fnv.rs",
+  "repo": "ripgrep",
+  "kind": "tests",
+  "file": "crates/globset/src/fnv.rs",
+  "answer": [
+   "crates/ignore/tests/gitignore_matched_path_or_any_parents_tests.rs",
+   "crates/ignore/tests/gitignore_skip_bom.rs"
+  ]
+ },
+ {
+  "id": "ripgrep:tests:crates/ignore/src/gitignore.rs",
+  "repo": "ripgrep",
+  "kind": "tests",
+  "file": "crates/ignore/src/gitignore.rs",
+  "answer": [
+   "crates/ignore/tests/gitignore_matched_path_or_any_parents_tests.rs",
+   "crates/ignore/tests/gitignore_skip_bom.rs"
+  ]
+ },
+ {
+  "id": "ripgrep:tests:crates/globset/src/glob.rs",
+  "repo": "ripgrep",
+  "kind": "tests",
+  "file": "crates/globset/src/glob.rs",
+  "answer": [
+   "crates/ignore/tests/gitignore_matched_path_or_any_parents_tests.rs",
+   "crates/ignore/tests/gitignore_skip_bom.rs"
+  ]
+ }
+]
