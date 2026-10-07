@@ -5,7 +5,6 @@
 [![CI](https://github.com/Sprout-DevLabs/sprout/actions/workflows/go.yml/badge.svg)](https://github.com/Sprout-DevLabs/sprout/actions/workflows/go.yml)
 [![Release](https://img.shields.io/github/v/release/Sprout-DevLabs/sprout)](https://github.com/Sprout-DevLabs/sprout/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Go Report Card](https://goreportcard.com/badge/github.com/Sprout-DevLabs/sprout)](https://goreportcard.com/report/github.com/Sprout-DevLabs/sprout)
 [![DeepSource](https://app.deepsource.com/gh/Sprout-DevLabs/sprout.svg/?label=active+issues&show_trend=true)](https://app.deepsource.com/gh/Sprout-DevLabs/sprout/)
 [![Go version](https://img.shields.io/github/go-mod/go-version/Sprout-DevLabs/sprout)](go.mod)
 [![Docs](https://img.shields.io/badge/docs-sprout--web-blue)](https://sprout-devlabs.github.io/sprout-web/docs/)
