@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -48,21 +49,17 @@ func TestContextJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(out), &r); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if r.SchemaVersion != 1 || r.Command != "context" || r.File != "b/b.go" {
-		t.Errorf("unexpected header: %s", out)
+	want := contextResult{
+		SchemaVersion: 1,
+		Command:       "context",
+		File:          "b/b.go",
+		Dependencies:  []contextDep{{"a/a.go", "uses a.Hello", []string{"func Hello() string"}}},
+		Users:         []contextUser{{"c/c.go", "uses b.B"}},
+		Tests:         []string{"b/b_test.go"},
+		Declarations:  []string{"func B() string"},
 	}
-	if len(r.Dependencies) != 1 || r.Dependencies[0].Path != "a/a.go" || r.Dependencies[0].Reason != "uses a.Hello" ||
-		strings.Join(r.Dependencies[0].Signatures, "; ") != "func Hello() string" {
-		t.Errorf("dependencies: %+v", r.Dependencies)
-	}
-	if len(r.Users) != 1 || r.Users[0].Path != "c/c.go" || r.Users[0].Reason != "uses b.B" {
-		t.Errorf("users: %+v", r.Users)
-	}
-	if strings.Join(r.Tests, "; ") != "b/b_test.go" {
-		t.Errorf("tests: %q", r.Tests)
-	}
-	if strings.Join(r.Declarations, "; ") != "func B() string" {
-		t.Errorf("declarations: %q", r.Declarations)
+	if !reflect.DeepEqual(r, want) {
+		t.Errorf("got %+v\nwant %+v", r, want)
 	}
 
 	// Empty parts are empty lists, not null.
