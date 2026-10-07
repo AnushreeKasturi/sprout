@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -20,9 +21,10 @@ func runContext(args []string, root string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.Usage = func() {}
 	budget := fs.Int("budget", 1500, "approximate token budget")
+	asJSON := fs.Bool("json", false, "print JSON (in full: the budget doesn't apply)")
 	arg, err := parseArgs(fs, args)
 	if err == flag.ErrHelp {
-		fmt.Fprint(stdout, "Usage: sprout context <file> [--budget N]\n")
+		fmt.Fprint(stdout, "Usage: sprout context <file> [--budget N] [--json]\n")
 		return 0
 	}
 	if err != nil {
@@ -58,44 +60,90 @@ func runContext(args []string, root string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	src, _ := os.ReadFile(abs)
+	if *asJSON {
+		data, _ := json.Marshal(gatherContext(g, id, string(src)))
+		fmt.Fprintf(stdout, "%s\n", data)
+		return 0
+	}
 	fmt.Fprint(stdout, fileContext(g, id, string(src), *budget))
 	return 0
 }
 
-// fileContext renders the context of one file, spending about budget tokens.
-func fileContext(g *Graph, id FileID, src string, budget int) string {
+type contextDep struct {
+	Path       string   `json:"path"`
+	Reason     string   `json:"reason"`
+	Signatures []string `json:"signatures"` // the declarations the file uses from it
+}
+
+type contextUser struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
+}
+
+// contextResult is what sprout context reports, gathered once and rendered
+// as text (fitted to the budget) or JSON (in full).
+type contextResult struct {
+	SchemaVersion int           `json:"schemaVersion"`
+	Command       string        `json:"command"`
+	File          string        `json:"file"`
+	Dependencies  []contextDep  `json:"dependencies"`
+	Users         []contextUser `json:"users"`
+	Tests         []string      `json:"tests"` // nearest first
+	Declarations  []string      `json:"declarations"`
+
+	affected int // non-test files that reach it, directly or not
+}
+
+// gatherContext collects the context of one file.
+func gatherContext(g *Graph, id FileID, src string) contextResult {
 	f := g.Files[id]
+	r := contextResult{
+		SchemaVersion: 1,
+		Command:       "context",
+		File:          f.Rel,
+		Dependencies:  []contextDep{},
+		Users:         []contextUser{},
+		Tests:         []string{},
+		Declarations:  append([]string{}, f.Symbols...),
+	}
 	deps := follow(g, []FileID{id}, false, 1, false)
 	users := follow(g, []FileID{id}, true, 1, false)
 	reach := follow(g, []FileID{id}, true, -1, false)
 	explain(g, deps, false)
 	explain(g, users, true)
-	var tests []string
-	affected := 0
+	for _, d := range deps {
+		sigs := usedSymbols(g.Files[d.id].Symbols, src, g.UsedNames(id, d.id))
+		r.Dependencies = append(r.Dependencies, contextDep{d.Path, d.Reason, append([]string{}, sigs...)})
+	}
+	for _, h := range users {
+		if !h.Test {
+			r.Users = append(r.Users, contextUser{h.Path, h.Reason})
+		}
+	}
+	// reach is nearest first, so tests are too: the ones that import the
+	// file come before the ones that reach it through others.
 	for _, h := range reach {
 		switch {
 		case runnableTest(g.Files[h.id]):
-			tests = append(tests, h.Path)
+			r.Tests = append(r.Tests, h.Path)
 		case !h.Test:
-			affected++
+			r.affected++
 		}
 	}
-	// tests is nearest first: the ones that import the file come before
-	// the ones that reach it through others.
-	var code []queryHit
-	for _, h := range users {
-		if !h.Test {
-			code = append(code, h)
-		}
-	}
+	return r
+}
+
+// fileContext renders the context of one file, spending about budget tokens.
+func fileContext(g *Graph, id FileID, src string, budget int) string {
+	r := gatherContext(g, id, src)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n", f.Rel)
-	summary := []string{plural(len(deps), "dependency"), plural(len(code), "direct user")}
-	if affected > len(code) {
-		summary = append(summary, fmt.Sprintf("%d affected through them", affected))
+	fmt.Fprintf(&b, "# %s\n", r.File)
+	summary := []string{plural(len(r.Dependencies), "dependency"), plural(len(r.Users), "direct user")}
+	if r.affected > len(r.Users) {
+		summary = append(summary, fmt.Sprintf("%d affected through them", r.affected))
 	}
-	summary = append(summary, plural(len(tests), "test")+" reach it")
+	summary = append(summary, plural(len(r.Tests), "test")+" reach it")
 	fmt.Fprintf(&b, "%s\n", strings.Join(summary, " · "))
 	used := estimateTokens(b.String())
 
@@ -128,28 +176,28 @@ func fileContext(g *Graph, id FileID, src string, budget int) string {
 	}
 
 	var depLines []string
-	for _, d := range deps {
+	for _, d := range r.Dependencies {
 		depLines = append(depLines, strings.TrimSuffix(d.Path+" — "+d.Reason, " — "))
-		for _, s := range capList(usedSymbols(g.Files[d.id].Symbols, src, g.UsedNames(id, d.id)), 4) {
+		for _, s := range capList(d.Signatures, 4) {
 			depLines = append(depLines, "  "+s)
 		}
 	}
 	add("depends on (and what it uses from each)", depLines, 0.45)
 
 	var userLines []string
-	for _, u := range code {
+	for _, u := range r.Users {
 		userLines = append(userLines, strings.TrimSuffix(u.Path+" — "+u.Reason, " — "))
 	}
 	add("used by", userLines, 0.4)
 
 	var testLines []string
-	if pkgs := goTestPackages(tests); len(pkgs) > 0 { // sorted by package
+	if pkgs := goTestPackages(r.Tests); len(pkgs) > 0 { // sorted by package
 		testLines = append(testLines, "go test "+strings.Join(capList(pkgs, 8), " "))
 	}
-	testLines = append(testLines, capList(tests, 8)...)
+	testLines = append(testLines, capList(r.Tests, 8)...)
 	add("tests that reach it", testLines, 0.45)
 
-	add("declares", f.Symbols, 1)
+	add("declares", r.Declarations, 1)
 	return b.String()
 }
 

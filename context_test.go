@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,6 +34,41 @@ func TestContext(t *testing.T) {
 	out, _, _ = runCLI(t, "context", filepath.Join(dir, "b/b.go"), "--budget", "40")
 	if estimateTokens(out) > 60 || !strings.Contains(out, "raise --budget") {
 		t.Errorf("--budget 40 (%d tokens):\n%s", estimateTokens(out), out)
+	}
+}
+
+func TestContextJSON(t *testing.T) {
+	dir := queryRepo(t)
+	// A budget too small for the text: JSON ignores it and reports in full.
+	out, errOut, code := runCLI(t, "context", filepath.Join(dir, "b/b.go"), "--json", "--budget", "10")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var r contextResult
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if r.SchemaVersion != 1 || r.Command != "context" || r.File != "b/b.go" {
+		t.Errorf("unexpected header: %s", out)
+	}
+	if len(r.Dependencies) != 1 || r.Dependencies[0].Path != "a/a.go" || r.Dependencies[0].Reason != "uses a.Hello" ||
+		strings.Join(r.Dependencies[0].Signatures, "; ") != "func Hello() string" {
+		t.Errorf("dependencies: %+v", r.Dependencies)
+	}
+	if len(r.Users) != 1 || r.Users[0].Path != "c/c.go" || r.Users[0].Reason != "uses b.B" {
+		t.Errorf("users: %+v", r.Users)
+	}
+	if strings.Join(r.Tests, "; ") != "b/b_test.go" {
+		t.Errorf("tests: %q", r.Tests)
+	}
+	if strings.Join(r.Declarations, "; ") != "func B() string" {
+		t.Errorf("declarations: %q", r.Declarations)
+	}
+
+	// Empty parts are empty lists, not null.
+	out, _, _ = runCLI(t, "context", filepath.Join(dir, "a/a.go"), "--json")
+	if !strings.Contains(out, `"dependencies":[]`) {
+		t.Errorf("no dependencies should be an empty list, not null: %s", out)
 	}
 }
 
