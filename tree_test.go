@@ -112,8 +112,9 @@ func TestUnreadableDirDoesNotAbortWalk(t *testing.T) {
 	if err := os.Mkdir(locked, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	// Give the directory back its permissions so the test's temp dir can be removed.
-	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	// Give the directory back its permissions so the test's temp dir can be
+	// removed: a directory needs the execute bit to be emptied.
+	t.Cleanup(func() { os.Chmod(locked, 0o700) }) // skipcq: GSC-G302
 
 	tree, err := BuildTree(dir, Options{MaxDepth: -1})
 	if err != nil {

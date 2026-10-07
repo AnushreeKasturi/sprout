@@ -74,49 +74,62 @@ def score(got, want):
     }
 
 
-def run_one(task, arm, sprout, model, max_turns):
+def claude_args(task, arm, claude, sprout, model, max_turns):
+    """The claude command line for one run, and the MCP config file to
+    delete afterwards (None for the baseline)."""
     tools = list(READ_TOOLS)
-    args = [shutil.which("claude") or sys.exit("claude (Claude Code) not found on PATH"), "-p", prompt(task), "--output-format", "stream-json", "--verbose", "--model", model,
+    args = [claude, "-p", prompt(task), "--output-format", "stream-json", "--verbose", "--model", model,
             "--max-turns", str(max_turns), "--no-session-persistence", "--setting-sources", "", "--strict-mcp-config",
             "--permission-mode", "default"]
     cfg = None
     if arm.startswith("sprout"):
-        cfg = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False)
-        json.dump({"mcpServers": {"sprout": {"command": sprout, "args": ["mcp", task["dir"]]}}}, cfg)
-        cfg.close()
-        args += ["--mcp-config", cfg.name]
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump({"mcpServers": {"sprout": {"command": sprout, "args": ["mcp", task["dir"]]}}}, f)
+            cfg = f.name
+        args += ["--mcp-config", cfg]
         tools.append("mcp__sprout")
     if arm == "sprout-hint":
         args += ["--append-system-prompt", HINT]
-    args += ["--allowedTools", *tools]
-    start = time.time()
-    p = subprocess.run(args, cwd=task["dir"], capture_output=True, text=True, timeout=900)
-    wall = time.time() - start
-    if cfg:
-        os.unlink(cfg.name)
+    return args + ["--allowedTools", *tools], cfg
 
-    # The stream has the session's setup (which MCP servers connected), every
-    # tool call, and the final result with usage and cost.
-    r, servers, calls = None, {}, {}
-    for line in p.stdout.splitlines():
+
+def read_stream(stdout):
+    """From Claude Code's stream-json output: the final result event, which
+    MCP servers connected, and how often each tool was called."""
+    result, servers, calls = None, {}, {}
+    for line in stdout.splitlines():
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if ev.get("type") == "system" and ev.get("subtype") == "init":
+        kind = ev.get("type")
+        if kind == "system" and ev.get("subtype") == "init":
             servers = {s["name"]: s.get("status") for s in ev.get("mcp_servers", [])}
-        elif ev.get("type") == "assistant":
+        elif kind == "assistant":
             for c in ev.get("message", {}).get("content", []):
                 if c.get("type") == "tool_use":
                     calls[c["name"]] = calls.get(c["name"], 0) + 1
-        elif ev.get("type") == "result":
-            r = ev
+        elif kind == "result":
+            result = ev
+    return result, servers, calls
+
+
+def run_one(task, arm, claude, sprout, model, max_turns):
+    args, cfg = claude_args(task, arm, claude, sprout, model, max_turns)
+    start = time.time()
+    try:
+        p = subprocess.run(args, cwd=task["dir"], capture_output=True, text=True, timeout=900)
+    finally:
+        if cfg:
+            os.unlink(cfg)
+    wall = round(time.time() - start, 1)
+    r, servers, calls = read_stream(p.stdout)
     if r is None:
-        return {"error": (p.stderr or p.stdout)[-500:], "wall": round(wall, 1)}
+        return {"error": (p.stderr or p.stdout)[-500:], "wall": wall}
     if r.get("is_error"):
-        return {"error": str(r.get("result"))[:500], "wall": round(wall, 1)}
+        return {"error": str(r.get("result"))[:500], "wall": wall}
     if arm.startswith("sprout") and servers.get("sprout") != "connected":
-        return {"error": f"sprout MCP server not connected: {servers}", "wall": round(wall, 1)}
+        return {"error": f"sprout MCP server not connected: {servers}", "wall": wall}
     usage = r.get("usage") or {}
     got = parse_answer(r.get("result", ""))
     return {
@@ -126,7 +139,7 @@ def run_one(task, arm, sprout, model, max_turns):
         "cost": r.get("total_cost_usd"),
         "input_tokens": usage.get("input_tokens", 0) + usage.get("cache_read_input_tokens", 0) + usage.get("cache_creation_input_tokens", 0),
         "output_tokens": usage.get("output_tokens", 0),
-        "wall": round(wall, 1),
+        "wall": wall,
         "tool_calls": calls,
     }
 
@@ -149,6 +162,9 @@ def main():
     if a.kind:
         tasks = [t for t in tasks if t["kind"] == a.kind]
     sprout = os.path.abspath(a.sprout)
+    claude = shutil.which("claude")
+    if not claude:
+        sys.exit("claude (Claude Code) not found on PATH")
     # Repositories are fetched at their pinned commits, as tools/accuracy does.
     sys.path.insert(0, ACC)
     import run as accuracy  # tools/accuracy/run.py
@@ -162,7 +178,7 @@ def main():
                 # Rotate which arm goes first, so none always runs on a warmer cache.
                 k = (i + n) % len(a.arms)
                 for arm in a.arms[k:] + a.arms[:k]:
-                    res = run_one(t, arm, sprout, a.model, a.max_turns)
+                    res = run_one(t, arm, claude, sprout, a.model, a.max_turns)
                     rec = {"task": t["id"], "kind": t["kind"], "arm": arm, "run": i, "model": a.model, "label": a.label, **res}
                     out.write(json.dumps(rec) + "\n")
                     out.flush()
