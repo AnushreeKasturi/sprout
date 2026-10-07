@@ -28,13 +28,13 @@ def sh(*cmd, cwd=None, env=None, out=None):
 def fetch(repo):
     d = os.path.join(CACHE, "repos", repo["name"])
     head = os.path.join(d, ".git", "HEAD")
-    if os.path.exists(head) and subprocess.run(["git", "rev-parse", "HEAD"], cwd=d, capture_output=True, text=True).stdout.strip() == repo["commit"]:
+    if os.path.exists(head) and subprocess.run(["/usr/bin/git", "rev-parse", "HEAD"], cwd=d, capture_output=True, text=True).stdout.strip() == repo["commit"]:
         return d
     os.makedirs(d, exist_ok=True)
     if not os.path.exists(head):
-        sh("git", "init", "-q", cwd=d)
-    sh("git", "fetch", "-q", "--depth", "1", repo["url"], repo["commit"], cwd=d)
-    sh("git", "checkout", "-q", "--force", "FETCH_HEAD", cwd=d)
+        sh("/usr/bin/git", "init", "-q", cwd=d)
+    sh("/usr/bin/git", "fetch", "-q", "--depth", "1", repo["url"], repo["commit"], cwd=d)
+    sh("/usr/bin/git", "checkout", "-q", "--force", "FETCH_HEAD", cwd=d)
     return d
 
 
