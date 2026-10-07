@@ -302,8 +302,12 @@ Kubernetes (31k files, warm cache):
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Ideas and bugs:
-[open an issue](https://github.com/Sprout-DevLabs/sprout/issues).
+New to open source? Issues labelled
+[`good first issue`](https://github.com/Sprout-DevLabs/sprout/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+are small, say where to look and how to test, and are a good place to start.
+[CONTRIBUTING.md](CONTRIBUTING.md) walks you through it. Ideas and bugs:
+[open an issue](https://github.com/Sprout-DevLabs/sprout/issues). Security
+problems: see [SECURITY.md](SECURITY.md).
 
 ## License
 
