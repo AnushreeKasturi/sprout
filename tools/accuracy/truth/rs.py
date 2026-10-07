@@ -127,9 +127,9 @@ def build(root, crate, rel_path, module_path, is_root):
     child_dir = os.path.dirname(rel_path) if is_root or stem == "mod" else norm(
         os.path.join(os.path.dirname(rel_path), stem)
     )
-    tokens, stack_frames, brace_depth, attribute_path = load(rel_path), [], 0, None
+    source_tokens, stack_frames, brace_depth, attribute_path = load(rel_path), [], 0, None
     decls[rel_path] = []
-    for idx, (token_type, token_value) in enumerate(tokens):
+    for idx, (token_type, token_value) in enumerate(source_tokens):
         if (token_type, token_value) == ("p", "{"):
             brace_depth += 1
         elif (token_type, token_value) == ("p", "}"):
@@ -140,15 +140,15 @@ def build(root, crate, rel_path, module_path, is_root):
             token_type == "id"
             and token_value == "path"
             and idx >= 2
-            and tokens[idx - 1] == ("p", "[")
-            and tokens[idx - 2] == ("p", "#")
-            and idx + 2 < len(tokens)
-            and tokens[idx + 2][0] == "str"
+            and source_tokens[idx - 1] == ("p", "[")
+            and source_tokens[idx - 2] == ("p", "#")
+            and idx + 2 < len(source_tokens)
+            and source_tokens[idx + 2][0] == "str"
         ):
-            attribute_path = tokens[idx + 2][1].strip('"')
-        elif token_type == "id" and token_value == "mod" and idx + 2 < len(tokens) and tokens[idx + 1][0] == "id":
-            mod_name = tokens[idx + 1][1]
-            next_token = tokens[idx + 2]
+            attribute_path = source_tokens[idx + 2][1].strip('"')
+        elif token_type == "id" and token_value == "mod" and idx + 2 < len(source_tokens) and source_tokens[idx + 1][0] == "id":
+            mod_name = source_tokens[idx + 1][1]
+            next_token = source_tokens[idx + 2]
             parent = tuple(name for name, _ in stack_frames)
             if next_token == ("p", "{"):
                 stack_frames.append((mod_name, brace_depth + 1))
