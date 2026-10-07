@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://sprout-devlabs.github.io/sprout-web/docs/
+    about: Guides for every command, the MCP server and the JSON output.
+  - name: Report a security problem
+    url: https://github.com/Sprout-DevLabs/sprout/security/advisories/new
+    about: Please report vulnerabilities privately, not in a public issue.
+  - name: Website and docs issues
+    url: https://github.com/Sprout-DevLabs/sprout-web/issues
+    about: Problems with the website or the docs pages.

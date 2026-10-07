@@ -1,0 +1,31 @@
+name: Feature request
+description: Something Sprout should do, or do better.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The task or question you had, not the feature yet. "I wanted to know which tests cover a file before refactoring it" is more useful than "add a --tests flag".
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What happens today
+      description: What you ran, and where Sprout fell short.
+    validations:
+      required: false
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: A rough idea of the output or command is welcome, not required.
+    validations:
+      required: false
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to work on this myself.
