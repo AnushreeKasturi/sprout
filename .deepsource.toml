@@ -1,0 +1,30 @@
+version = 1
+
+# Tests get test-appropriate checks: permissions on throwaway temp folders,
+# for example, aren't a security issue there.
+test_patterns = ["**/*_test.go"]
+
+# Repositories and packages the dev tools download aren't our code.
+exclude_patterns = [
+  "tools/accuracy/.cache/**",
+  "tools/accuracy/node_modules/**",
+  "dist/**",
+]
+
+[[analyzers]]
+name = "go"
+
+  [analyzers.meta]
+  import_root = "github.com/Sprout-DevLabs/sprout"
+
+[[analyzers]]
+name = "python"
+
+  [analyzers.meta]
+  runtime_version = "3.x.x"
+
+[[analyzers]]
+name = "javascript"
+
+[[analyzers]]
+name = "secrets"

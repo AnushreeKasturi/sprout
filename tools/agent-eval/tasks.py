@@ -58,7 +58,7 @@ def truth_graph(repo, lang):
     if not os.path.exists(graph_file):
         os.makedirs(os.path.dirname(graph_file), exist_ok=True)
         env = dict(os.environ, SPROUT_GRAPH_DIR=d, SPROUT_GRAPH_OUT=graph_file)
-        subprocess.run(["/usr/bin/go", "test", "-run", "^TestDumpGraph$", "-count=1", "."], cwd=accuracy.ROOT, env=env, check=True, capture_output=True)
+        subprocess.run([accuracy.tool("go"), "test", "-run", "^TestDumpGraph$", "-count=1", "."], cwd=accuracy.ROOT, env=env, check=True, capture_output=True)
     t = accuracy.truth(lang, d, graph_file)
     files = json.load(open(graph_file))["files"]  # only for the list of files in scope
     tests = {f["rel"] for f in files if is_test_file(f["rel"])}
