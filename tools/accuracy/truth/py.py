@@ -36,30 +36,30 @@ roots |= {(r + "/src").lstrip("/") for r in list(roots)}
 roots = sorted(roots, key=lambda r: (r != "", len(r), r))  # repo root first, then nearest
 
 
-def module_file(base, dotted):
-    """The file for module `dotted` under directory `base`, or None."""
-    p = "/".join(x for x in [base, dotted.replace(".", "/")] if x)
+def module_file(base_path, dotted):
+    """The file for module `dotted` under directory `base_path`, or None."""
+    p = "/".join(x for x in [base_path, dotted.replace(".", "/")] if x)
     for cand in (p + ".py", p + "/__init__.py"):
         if exists(cand):
             return cand
     return None
 
 
-def parents(base, dotted):
+def parents(base_dir, dotted):
     """__init__.py of each package on the way to `dotted`."""
-    parts, out = dotted.split(".") if dotted else [], []
+    parts, results = dotted.split(".") if dotted else [], []
     for i in range(1, len(parts)):
-        f = "/".join(x for x in [base, *parts[:i], "__init__.py"] if x)
-        if exists(f):
-            out.append(f)
-    return out
+        file_path = "/".join(x for x in [base_dir, *parts[:i], "__init__.py"] if x)
+        if exists(file_path):
+            results.append(file_path)
+    return results
 
 
 def absolute(dotted):
-    for root in roots:
-        f = module_file(root, dotted)
-        if f:
-            return root, f
+    for current_root in roots:
+        file_path = module_file(current_root, dotted)
+        if file_path:
+            return current_root, file_path
     return None, None
 
 

@@ -42,29 +42,29 @@ TOKEN = re.compile(
 
 
 def tokens(src):
-    out, i = [], 0
-    while i < len(src):
-        m = TOKEN.match(src, i)
+    result, pos = [], 0
+    while pos < len(src):
+        m = TOKEN.match(src, pos)
         kind = m.lastgroup
         if kind == "block":  # nested block comments
-            depth, j = 1, m.end()
-            while depth and j < len(src):
-                if src.startswith("/*", j):
-                    depth, j = depth + 1, j + 2
-                elif src.startswith("*/", j):
-                    depth, j = depth - 1, j + 2
+            nesting_depth, idx = 1, m.end()
+            while nesting_depth and idx < len(src):
+                if src.startswith("/*", idx):
+                    nesting_depth, idx = nesting_depth + 1, idx + 2
+                elif src.startswith("*/", idx):
+                    nesting_depth, idx = nesting_depth - 1, idx + 2
                 else:
-                    j += 1
-            i = j
+                    idx += 1
+            pos = idx
             continue
         if kind in ("str", "raw"):
-            out.append(("str", m.group()))
+            result.append(("str", m.group()))
         elif kind == "ident":
-            out.append(("id", m.group().removeprefix("r#")))
+            result.append(("id", m.group().removeprefix("r#")))
         elif kind in ("path", "p"):
-            out.append(("p", m.group()))
-        i = m.end()
-    return out
+            result.append(("p", m.group()))
+        pos = m.end()
+    return result
 
 
 # ---------- crates ----------
@@ -109,50 +109,70 @@ parsed = {}  # file -> tokens
 decls = {}  # file -> [(module path inside file, child name, child file)]
 
 
-def load(rel):
-    if rel not in parsed:
+def load(rel_path):
+    if rel_path not in parsed:
         try:
-            parsed[rel] = tokens(open(os.path.join(repo, rel), encoding="utf-8", errors="replace").read())
+            parsed[rel_path] = tokens(open(os.path.join(repo, rel_path), encoding="utf-8", errors="replace").read())
         except OSError:
-            parsed[rel] = []
-    return parsed[rel]
+            parsed[rel_path] = []
+    return parsed[rel_path]
 
 
-def build(crate_root, crate_name, rel, mpath, is_root):
-    if rel in file_ctx:
+def build(root, crate, rel_path, module_path, is_root):
+    if rel_path in file_ctx:
         return
-    file_ctx[rel] = (crate_root, crate_name, mpath)
-    module_file[(crate_root, mpath)] = rel
-    stem = os.path.splitext(os.path.basename(rel))[0]
-    child_dir = os.path.dirname(rel) if is_root or stem == "mod" else norm(os.path.join(os.path.dirname(rel), stem))
-    toks, stack, depth, attr_path = load(rel), [], 0, None
-    decls[rel] = []
-    for i, (k, v) in enumerate(toks):
-        if (k, v) == ("p", "{"):
-            depth += 1
-        elif (k, v) == ("p", "}"):
-            depth -= 1
-            if stack and stack[-1][1] > depth:
-                stack.pop()
-        elif (k, v) == ("id", "path") and i >= 2 and toks[i - 1] == ("p", "[") and toks[i - 2] == ("p", "#") and i + 2 < len(toks) and toks[i + 2][0] == "str":
-            attr_path = toks[i + 2][1].strip('"')
-        elif (k, v) == ("id", "mod") and i + 2 < len(toks) and toks[i + 1][0] == "id":
-            name, nxt = toks[i + 1][1], toks[i + 2]
-            inner = tuple(s for s, _ in stack)
-            if nxt == ("p", "{"):
-                stack.append((name, depth + 1))
-                module_file[(crate_root, mpath + inner + (name,))] = rel
-            elif nxt == ("p", ";"):
-                d = norm(os.path.join(child_dir, *inner)) if inner else child_dir
-                if attr_path:
-                    cands = [norm(os.path.join(os.path.dirname(rel) if not inner else d, attr_path))]
+    file_ctx[rel_path] = (root, crate, module_path)
+    module_file[(root, module_path)] = rel_path
+    stem = os.path.splitext(os.path.basename(rel_path))[0]
+    child_dir = os.path.dirname(rel_path) if is_root or stem == "mod" else norm(
+        os.path.join(os.path.dirname(rel_path), stem)
+    )
+    tokens, stack_frames, brace_depth, attribute_path = load(rel_path), [], 0, None
+    decls[rel_path] = []
+    for idx, (token_type, token_value) in enumerate(tokens):
+        if (token_type, token_value) == ("p", "{"):
+            brace_depth += 1
+        elif (token_type, token_value) == ("p", "}"):
+            brace_depth -= 1
+            if stack_frames and stack_frames[-1][1] > brace_depth:
+                stack_frames.pop()
+        elif (
+            token_type == "id"
+            and token_value == "path"
+            and idx >= 2
+            and tokens[idx - 1] == ("p", "[")
+            and tokens[idx - 2] == ("p", "#")
+            and idx + 2 < len(tokens)
+            and tokens[idx + 2][0] == "str"
+        ):
+            attribute_path = tokens[idx + 2][1].strip('"')
+        elif token_type == "id" and token_value == "mod" and idx + 2 < len(tokens) and tokens[idx + 1][0] == "id":
+            mod_name = tokens[idx + 1][1]
+            next_token = tokens[idx + 2]
+            parent = tuple(name for name, _ in stack_frames)
+            if next_token == ("p", "{"):
+                stack_frames.append((mod_name, brace_depth + 1))
+                module_file[(root, module_path + parent + (mod_name,))] = rel_path
+            elif next_token == ("p", ";"):
+                dir_path = (
+                    norm(os.path.join(child_dir, *parent))
+                    if parent
+                    else child_dir
+                )
+                if attribute_path:
+                    candidates = [
+                        norm(os.path.join(os.path.dirname(rel_path) if not parent else dir_path, attribute_path))
+                    ]
                 else:
-                    cands = [norm(os.path.join(d, name + ".rs")), norm(os.path.join(d, name, "mod.rs"))]
-                child = next((c for c in cands if isfile(c)), None)
-                decls[rel].append((inner, name, child))
-                if child:
-                    build(crate_root, crate_name, child, mpath + inner + (name,), False)
-            attr_path = None
+                    candidates = [
+                        norm(os.path.join(dir_path, mod_name + ".rs")),
+                        norm(os.path.join(dir_path, mod_name, "mod.rs")),
+                    ]
+                child_file = next((c for c in candidates if isfile(c)), None)
+                decls[rel_path].append((parent, mod_name, child_file))
+                if child_file:
+                    build(root, crate, child_file, module_path + parent + (mod_name,), False)
+            attribute_path = None
 
 
 for name, root, _ in sorted(crates, key=lambda c: not c[2]):  # libraries first
@@ -161,81 +181,81 @@ for name, root, _ in sorted(crates, key=lambda c: not c[2]):  # libraries first
 # ---------- uses ----------
 
 
-def use_trees(toks, start):
-    """Expand the use tree starting at toks[start]; returns (paths, index after ';')."""
-    paths, i = [], start
+def use_trees(tokens, start):
+    """Expand the use tree starting at tokens[start]; returns (result_paths, index after ';')."""
+    result_paths, idx = [], start
 
     def tree(prefix):
-        nonlocal i
-        segs = list(prefix)
-        if toks[i] == ("p", "::"):
-            i += 1
-            segs = ["::"]
-        while i < len(toks):
-            k, v = toks[i]
-            if (k, v) == ("p", "{"):
-                i += 1
-                while toks[i] != ("p", "}"):
-                    tree(segs)
-                    if toks[i] == ("p", ","):
-                        i += 1
-                i += 1
+        nonlocal idx
+        segments = list(prefix)
+        if tokens[idx] == ("p", "::"):
+            idx += 1
+            segments = ["::"]
+        while idx < len(tokens):
+            tok_type, tok_val = tokens[idx]
+            if (tok_type, tok_val) == ("p", "{"):
+                idx += 1
+                while tokens[idx] != ("p", "}"):
+                    tree(segments)
+                    if tokens[idx] == ("p", ","):
+                        idx += 1
+                idx += 1
                 return
-            if (k, v) == ("p", "*"):
-                paths.append(segs + ["*"])
-                i += 1
+            if (tok_type, tok_val) == ("p", "*"):
+                result_paths.append(segments + ["*"])
+                idx += 1
                 return
-            if k == "id":
-                i += 1
-                if v == "self" and prefix and len(segs) == len(prefix):
-                    if toks[i] == ("id", "as"):
-                        i += 2
-                    paths.append(list(segs))  # a::{self} means a
+            if tok_type == "id":
+                idx += 1
+                if tok_val == "self" and prefix and len(segments) == len(prefix):
+                    if tokens[idx] == ("id", "as"):
+                        idx += 2
+                    result_paths.append(list(segments))  # a::{self} means a
                     return
-                segs.append(v)
-                if toks[i] == ("p", "::"):
-                    i += 1
+                segments.append(tok_val)
+                if tokens[idx] == ("p", "::"):
+                    idx += 1
                     continue
-                if toks[i] == ("id", "as"):
-                    i += 2
-                paths.append(segs)
+                if tokens[idx] == ("id", "as"):
+                    idx += 2
+                result_paths.append(segments)
                 return
             return
 
     try:
         tree([])
-        while toks[i] != ("p", ";"):
-            i += 1
+        while tokens[idx] != ("p", ";"):
+            idx += 1
     except IndexError:
         pass
-    return paths, i + 1
+    return result_paths, idx + 1
 
 
-def resolve(rel, inner, segs):
+def resolve(rel_path, inner_mod, segments):
     """The file a path refers to, from inside module `inner` of file rel."""
-    crate_root, crate_name, mpath = file_ctx[rel]
-    here = mpath + inner
-    if not segs or segs[0] == "::":
+    global_crate_root, global_crate_name, module_path = file_ctx[rel_path]
+    here = module_path + inner_mod
+    if not segments or segments[0] == "::":
         return None
-    first, rest = segs[0], segs[1:]
+    first, rest_segments = segments[0], segments[1:]
     if first == "crate":
-        root, base = crate_root, ()
+        root_dir, base_path = global_crate_root, ()
     elif first in ("self", "super"):
-        root, base = crate_root, here
-        while segs and segs[0] in ("self", "super"):
-            if segs[0] == "super":
-                base = base[:-1]
-            segs = segs[1:]
-        rest = segs
-    elif (crate_root, here + (first,)) in module_file:
-        root, base, rest = crate_root, here, segs
-    elif first in libs and libs[first] != crate_root:  # another crate, or this package's library from a test or binary
-        root, base = libs[first], ()
+        root_dir, base_path = global_crate_root, here
+        while segments and segments[0] in ("self", "super"):
+            if segments[0] == "super":
+                base_path = base_path[:-1]
+            segments = segments[1:]
+        rest_segments = segments
+    elif (global_crate_root, here + (first,)) in module_file:
+        root_dir, base_path, rest_segments = global_crate_root, here, segments
+    elif first in libs and libs[first] != global_crate_root:  # another crate, or this package's library from a test or binary
+        root_dir, base_path = libs[first], ()
     else:
         return None  # external crate or a name in scope
-    rest = [s for s in rest if s != "*"]
-    for k in range(len(rest), -1, -1):
-        f = module_file.get((root, base + tuple(rest[:k])))
+    rest_segments = [s for s in rest_segments if s != "*"]
+    for idx in range(len(rest_segments), -1, -1):
+        f = module_file.get((root_dir, base_path + tuple(rest_segments[:idx])))
         if f:
             return f
     return None
