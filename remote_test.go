@@ -29,7 +29,7 @@ func TestRemoteURL(t *testing.T) {
 	// Something on disk is always local, even if it looks like a URL.
 	dir := t.TempDir()
 	local := filepath.Join(dir, "github.com", "a", "b")
-	os.MkdirAll(local, 0o755)
+	os.MkdirAll(local, 0o750)
 	wd, _ := os.Getwd()
 	os.Chdir(dir)
 	defer os.Chdir(wd)

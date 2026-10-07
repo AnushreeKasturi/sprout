@@ -12,7 +12,7 @@ import (
 func queryRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o755); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, ".git"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	write(t, dir, "go.mod", "module ex\n\ngo 1.22\n")
@@ -124,7 +124,7 @@ func TestQueryRootWithoutGit(t *testing.T) {
 // Python helpers among the tests are labelled as helpers, not tests to run.
 func TestDependentsLabelsTestHelpers(t *testing.T) {
 	dir := t.TempDir()
-	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
+	os.Mkdir(filepath.Join(dir, ".git"), 0o750)
 	write(t, dir, "app/crud.py", "def create(): pass\n")
 	write(t, dir, "tests/conftest.py", "from app import crud\n")
 	write(t, dir, "tests/test_crud.py", "from app import crud\n")

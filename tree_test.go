@@ -18,8 +18,8 @@ func setupTestDir(t *testing.T) string {
 		}
 	}
 
-	must(os.MkdirAll(filepath.Join(dir, "src"), 0755))
-	must(os.MkdirAll(filepath.Join(dir, "node_modules"), 0755))
+	must(os.MkdirAll(filepath.Join(dir, "src"), 0750))
+	must(os.MkdirAll(filepath.Join(dir, "node_modules"), 0750))
 	must(os.WriteFile(filepath.Join(dir, "src", "main.go"), []byte("package main"), 0644))
 	must(os.WriteFile(filepath.Join(dir, "README.md"), []byte("# test"), 0644))
 	must(os.WriteFile(filepath.Join(dir, ".hidden"), []byte("secret"), 0644))
@@ -201,7 +201,7 @@ func git(t *testing.T, dir string, args ...string) string {
 func write(t *testing.T, dir, rel, content string) {
 	t.Helper()
 	p := filepath.Join(dir, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
