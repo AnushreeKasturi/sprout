@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -33,6 +35,37 @@ func TestContext(t *testing.T) {
 	out, _, _ = runCLI(t, "context", filepath.Join(dir, "b/b.go"), "--budget", "40")
 	if estimateTokens(out) > 60 || !strings.Contains(out, "raise --budget") {
 		t.Errorf("--budget 40 (%d tokens):\n%s", estimateTokens(out), out)
+	}
+}
+
+func TestContextJSON(t *testing.T) {
+	dir := queryRepo(t)
+	// A budget too small for the text: JSON ignores it and reports in full.
+	out, errOut, code := runCLI(t, "context", filepath.Join(dir, "b/b.go"), "--json", "--budget", "10")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var r contextResult
+	if err := json.Unmarshal([]byte(out), &r); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	want := contextResult{
+		SchemaVersion: 1,
+		Command:       "context",
+		File:          "b/b.go",
+		Dependencies:  []contextDep{{"a/a.go", "uses a.Hello", []string{"func Hello() string"}}},
+		Users:         []contextUser{{"c/c.go", "uses b.B"}},
+		Tests:         []string{"b/b_test.go"},
+		Declarations:  []string{"func B() string"},
+	}
+	if !reflect.DeepEqual(r, want) {
+		t.Errorf("got %+v\nwant %+v", r, want)
+	}
+
+	// Empty parts are empty lists, not null.
+	out, _, _ = runCLI(t, "context", filepath.Join(dir, "a/a.go"), "--json")
+	if !strings.Contains(out, `"dependencies":[]`) {
+		t.Errorf("no dependencies should be an empty list, not null: %s", out)
 	}
 }
 

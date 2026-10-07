@@ -61,7 +61,10 @@ var subcommands = []subcommand{
 		{"all", "list every affected file", false},
 		{"json", "print JSON", false},
 	}, true},
-	{"context", "what to know before editing a file", []flagInfo{{"budget", "approximate token budget", true}}, true},
+	{"context", "what to know before editing a file", []flagInfo{
+		{"budget", "approximate token budget", true},
+		{"json", "print JSON", false},
+	}, true},
 	{"mcp", "serve Sprout to coding agents over MCP", nil, false},
 }
 
