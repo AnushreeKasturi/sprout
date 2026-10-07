@@ -118,7 +118,8 @@ def run_one(task, arm, claude, sprout, model, max_turns):
     args, cfg = claude_args(task, arm, claude, sprout, model, max_turns)
     start = time.time()
     try:
-        p = subprocess.run(args, cwd=task["dir"], capture_output=True, text=True, timeout=900)
+        # check=False: a failed run is reported from its output, not raised.
+        p = subprocess.run(args, cwd=task["dir"], capture_output=True, text=True, timeout=900, check=False)
     finally:
         if cfg:
             os.unlink(cfg)
