@@ -112,7 +112,7 @@ func TestUnreadableDirDoesNotAbortWalk(t *testing.T) {
 	if err := os.Mkdir(locked, 0o000); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+	T.Cleanup(func() { os.Chmod(locked, 0o600) })
 
 	tree, err := BuildTree(dir, Options{MaxDepth: -1})
 	if err != nil {
