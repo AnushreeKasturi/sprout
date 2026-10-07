@@ -39,7 +39,7 @@ def sh(*cmd, cwd=None, env=None, out=None):
 def fetch(repo):
     d = os.path.join(CACHE, "repos", repo["name"])
     head = os.path.join(d, ".git", "HEAD")
-    if os.path.exists(head) and subprocess.run([tool("git"), "rev-parse", "HEAD"], cwd=d, capture_output=True, text=True).stdout.strip() == repo["commit"]:
+    if os.path.exists(head) and subprocess.run([tool("git"), "rev-parse", "HEAD"], cwd=d, capture_output=True, text=True, check=False).stdout.strip() == repo["commit"]:
         return d
     os.makedirs(d, exist_ok=True)
     if not os.path.exists(head):
