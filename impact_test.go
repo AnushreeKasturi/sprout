@@ -124,7 +124,7 @@ func TestImpactListsRunnableTests(t *testing.T) {
 	write(t, dir, "tests/conftest.py", "from app import crud\n")
 	write(t, dir, "tests/utils/user.py", "from app import crud\n")
 	write(t, dir, "tests/test_api.py", "from tests.utils import user\n")
-	os.Mkdir(filepath.Join(dir, ".git"), 0o755)
+	os.Mkdir(filepath.Join(dir, ".git"), 0o750)
 	out, _, code := runCLI(t, "impact", filepath.Join(dir, "app/crud.py"), "--json")
 	var r impactResult
 	if code != 0 || json.Unmarshal([]byte(out), &r) != nil {
