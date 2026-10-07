@@ -1,5 +1,11 @@
 blank_issues_enabled: true
 contact_links:
+  - name: Ask a question
+    url: https://github.com/Sprout-DevLabs/sprout/discussions/categories/q-a
+    about: How do I…? Why does Sprout…? Ask in Discussions.
+  - name: Share an idea
+    url: https://github.com/Sprout-DevLabs/sprout/discussions/categories/ideas
+    about: Not sure it's a feature request yet? Talk it through in Discussions first.
   - name: Documentation
     url: https://sprout-devlabs.github.io/sprout-web/docs/
     about: Guides for every command, the MCP server and the JSON output.
