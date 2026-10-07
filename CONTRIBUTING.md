@@ -14,7 +14,8 @@ to start.
    work. If you go quiet for two weeks, someone else may pick it up; that's
    fine, you can always come back.
 3. **Ask early.** Questions on the issue are welcome at any point, including
-   "where do I start?".
+   "where do I start?". General questions go in
+   [Discussions](https://github.com/Sprout-DevLabs/sprout/discussions).
 4. **Open a draft pull request** as soon as something works, even partly. It's
    easier to help with code we can see.
 
