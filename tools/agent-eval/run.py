@@ -22,6 +22,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -75,7 +76,7 @@ def score(got, want):
 
 def run_one(task, arm, sprout, model, max_turns):
     tools = list(READ_TOOLS)
-    args = ["claude", "-p", prompt(task), "--output-format", "stream-json", "--verbose", "--model", model,
+    args = [shutil.which("claude") or sys.exit("claude (Claude Code) not found on PATH"), "-p", prompt(task), "--output-format", "stream-json", "--verbose", "--model", model,
             "--max-turns", str(max_turns), "--no-session-persistence", "--setting-sources", "", "--strict-mcp-config",
             "--permission-mode", "default"]
     cfg = None

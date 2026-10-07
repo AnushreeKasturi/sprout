@@ -9,9 +9,10 @@ Needs Go, Node and Python 3.11+; see README.md for what each number means.
 """
 
 import collections
-import re
 import json
 import os
+import re
+import shutil
 import subprocess
 import sys
 
@@ -21,6 +22,16 @@ CACHE = os.environ.get("SPROUT_ACCURACY_CACHE", os.path.join(HERE, ".cache"))
 LANGS = {"js": "TS/JS", "py": "Python", "go": "Go", "rs": "Rust"}
 
 
+def tool(name):
+    """The absolute path of a program on PATH, so subprocess calls don't
+    depend on how a bare name is looked up; exits with a clear message if
+    it isn't installed."""
+    found = shutil.which(name)
+    if not found:
+        sys.exit(f"{name} not found on PATH; tools/accuracy needs Go, Node and git")
+    return found
+
+
 def sh(*cmd, cwd=None, env=None, out=None):
     return subprocess.run(cmd, cwd=cwd, env=env, check=True, stdout=out or subprocess.DEVNULL, stderr=subprocess.PIPE if out else None, text=True)
 
@@ -28,22 +39,22 @@ def sh(*cmd, cwd=None, env=None, out=None):
 def fetch(repo):
     d = os.path.join(CACHE, "repos", repo["name"])
     head = os.path.join(d, ".git", "HEAD")
-    if os.path.exists(head) and subprocess.run(["/usr/bin/git", "rev-parse", "HEAD"], cwd=d, capture_output=True, text=True).stdout.strip() == repo["commit"]:
+    if os.path.exists(head) and subprocess.run([tool("git"), "rev-parse", "HEAD"], cwd=d, capture_output=True, text=True).stdout.strip() == repo["commit"]:
         return d
     os.makedirs(d, exist_ok=True)
     if not os.path.exists(head):
-        sh("/usr/bin/git", "init", "-q", cwd=d)
-    sh("/usr/bin/git", "fetch", "-q", "--depth", "1", repo["url"], repo["commit"], cwd=d)
-    sh("/usr/bin/git", "checkout", "-q", "--force", "FETCH_HEAD", cwd=d)
+        sh(tool("git"), "init", "-q", cwd=d)
+    sh(tool("git"), "fetch", "-q", "--depth", "1", repo["url"], repo["commit"], cwd=d)
+    sh(tool("git"), "checkout", "-q", "--force", "FETCH_HEAD", cwd=d)
     return d
 
 
 def truth(lang, repo_dir, graph_file):
     cmd = {
-        "js": ["node", os.path.join(HERE, "truth", "ts.mjs")],
+        "js": [tool("node"), os.path.join(HERE, "truth", "ts.mjs")],
         "py": [sys.executable, os.path.join(HERE, "truth", "py.py")],
         "rs": [sys.executable, os.path.join(HERE, "truth", "rs.py")],
-        "go": ["go", "run", "./tools/accuracy/truth/gotruth"],
+        "go": [tool("go"), "run", "./tools/accuracy/truth/gotruth"],
     }[lang]
     return json.loads(sh(*cmd, repo_dir, graph_file, cwd=ROOT, out=subprocess.PIPE).stdout)
 
@@ -104,7 +115,7 @@ def main():
     if sys.argv[1:]:
         repos = [r for r in repos if r["name"] in sys.argv[1:]]
     if not os.path.exists(os.path.join(HERE, "node_modules", "typescript")):
-        sh("npm", "ci", "--no-audit", "--no-fund", "--silent", cwd=HERE)
+        sh(tool("npm"), "ci", "--no-audit", "--no-fund", "--silent", cwd=HERE)
     os.makedirs(os.path.join(CACHE, "out"), exist_ok=True)
 
     rows = ["| Repository | Language | Files | In-repo imports found | False imports | Links found | Links correct |", "|---|---|---:|---:|---:|---:|---:|"]
@@ -115,7 +126,7 @@ def main():
         # Dump the graph before the TypeScript truth links workspace packages into node_modules.
         env = dict(os.environ, SPROUT_GRAPH_DIR=d, SPROUT_GRAPH_OUT=graph_file)
         print(f"{repo['name']}: building Sprout's graph", file=sys.stderr)
-        sh("go", "test", "-run", "^TestDumpGraph$", "-count=1", ".", cwd=ROOT, env=env)
+        sh(tool("go"), "test", "-run", "^TestDumpGraph$", "-count=1", ".", cwd=ROOT, env=env)
         files = json.load(open(graph_file))["files"]
         for lang in LANGS:
             mine = [f for f in files if f["lang"] == lang]
