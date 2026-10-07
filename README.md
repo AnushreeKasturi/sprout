@@ -5,6 +5,12 @@
 [![CI](https://github.com/Sprout-DevLabs/sprout/actions/workflows/go.yml/badge.svg)](https://github.com/Sprout-DevLabs/sprout/actions/workflows/go.yml)
 [![Release](https://img.shields.io/github/v/release/Sprout-DevLabs/sprout)](https://github.com/Sprout-DevLabs/sprout/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Sprout-DevLabs/sprout)](https://goreportcard.com/report/github.com/Sprout-DevLabs/sprout)
+[![DeepSource](https://app.deepsource.com/gh/Sprout-DevLabs/sprout.svg/?label=active+issues&show_trend=true)](https://app.deepsource.com/gh/Sprout-DevLabs/sprout/)
+[![Go version](https://img.shields.io/github/go-mod/go-version/Sprout-DevLabs/sprout)](go.mod)
+[![Docs](https://img.shields.io/badge/docs-sprout--web-blue)](https://sprout-devlabs.github.io/sprout-web/docs/)
+[![Good first issues](https://img.shields.io/github/issues/Sprout-DevLabs/sprout/good%20first%20issue?label=good%20first%20issues&color=7057ff)](https://github.com/Sprout-DevLabs/sprout/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+[![Discussions](https://img.shields.io/github/discussions/Sprout-DevLabs/sprout)](https://github.com/Sprout-DevLabs/sprout/discussions)
 
 <p align="center">
   <img src=".github/assets/sprout-demo.gif" width="800" alt="Sprout demo: sprout maps a repository as a tree, lists where to start reading with sprout --entry, and condenses the project into a 1,484-token map for AI agents with sprout --ai.">
