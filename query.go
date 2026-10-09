@@ -200,16 +200,23 @@ func printHits(w io.Writer, g *Graph, cmd, rel string, hits []queryHit) {
 // projectRoot is the nearest directory above the file holding .git, so
 // imports resolve against the whole repository; outside one, the current
 // directory if the file is under it, else the file's own directory.
-func projectRoot(file string) string {
-	for dir := filepath.Dir(file); ; {
+// gitTop is the nearest folder at or above dir holding .git, or "".
+func gitTop(dir string) string {
+	for {
 		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			break
+			return ""
 		}
 		dir = parent
+	}
+}
+
+func projectRoot(file string) string {
+	if dir := gitTop(filepath.Dir(file)); dir != "" {
+		return dir
 	}
 	if cwd, err := os.Getwd(); err == nil {
 		if rel, err := filepath.Rel(cwd, file); err == nil && !strings.HasPrefix(rel, "..") {
