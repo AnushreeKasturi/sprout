@@ -66,6 +66,10 @@ var subcommands = []subcommand{
 		{"json", "print JSON", false},
 	}, true},
 	{"mcp", "serve Sprout to coding agents over MCP", nil, false},
+	{"tour", "guided repository onboarding", []flagInfo{
+		{"json", "print versioned JSON", false},
+		{"limit", "maximum reading steps and directories (1-50)", true},
+	}, true},
 }
 
 func writeCompletion(w io.Writer, shell string) error {
@@ -101,6 +105,9 @@ func writeBash(w io.Writer, fl []flagInfo) {
 		var cf []string
 		for _, f := range c.flags {
 			cf = append(cf, dash(f.name))
+			if f.takesValue {
+				valued = append(valued, dash(f.name))
+			}
 		}
 		files := "COMPREPLY=()"
 		if c.files {
@@ -301,6 +308,12 @@ sprout \- map your codebase, for you and your AI agent
 .I file
 .RB [ \-\-budget
 .IR n ]
+.br
+.B sprout tour
+.RI [ path ]
+.RB [ \-\-json ]
+.RB [ \-\-limit
+.IR n ]
 .SH DESCRIPTION
 Sprout prints a directory tree that respects .gitignore and counts what it hides.
 It can mark git changes and commit hotspots in place, show a revision range as a
@@ -322,7 +335,13 @@ changes, \fB\-\-staged\fR, \fB\-\-diff\fR \fIrev\fR or \fB\-\-commit\fR \fIrev\f
 budget (\fB\-\-budget\fR, default 1500): what it declares, the signatures it uses from
 each dependency, the files that use it and why, and the tests that reach it.
 .PP
-To map a folder named like a command (deps, dependents, impact, context), write ./deps.
+\fBsprout tour\fR gives an offline reading plan for a local directory: a README
+excerpt, detected ecosystems, layout, likely entry points and commonly used files.
+\fB\-\-json\fR emits schema-version-1 JSON; \fB\-\-limit\fR bounds reading steps
+and top-level directories (default 8, range 1-50), not analysis. Suggestions are
+heuristics. No project code is executed, and tree-view config is not loaded.
+.PP
+To map a folder named like a command (deps, dependents, impact, context, tour), write ./deps.
 .SH OPTIONS
 `, time.Now().UTC().Format("2006-01-02"), r.Replace(resolveVersion()))
 	for _, f := range allFlags() {
@@ -361,6 +380,8 @@ sprout --size --sort size --max-files 5
 sprout github.com/owner/repo --entry
 sprout dependents internal/auth/session.go --depth 2
 sprout impact --diff main...HEAD
+sprout tour
+sprout tour ./project --json --limit 12
 .fi
 .SH SEE ALSO
 .BR tree (1),

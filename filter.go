@@ -158,7 +158,8 @@ func readIgnoreFile(root string) []string {
 // ponytail: an untracked nested repo is listed as "dir/" and shows up empty;
 // walk into it separately if that ever matters.
 func gitVisible(root string) (map[string]bool, bool) {
-	out, err := exec.Command("git", "-C", root, "ls-files",
+	// Ignore discovery must not execute a repository-configured fsmonitor hook.
+	out, err := exec.Command("git", "-c", "core.fsmonitor=false", "-C", root, "ls-files",
 		"--cached", "--others", "--exclude-standard", "-z").Output()
 	if err != nil {
 		return nil, false

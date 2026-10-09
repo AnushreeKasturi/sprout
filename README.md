@@ -29,6 +29,7 @@ read projects:
 ```bash
 sprout --ai | pbcopy                     # project context for any chat, ~2k tokens
 sprout --entry                           # where to start reading
+sprout tour                              # purpose, layout, reading plan and next commands
 sprout impact --diff main...HEAD         # what this branch could break, and the tests to run
 sprout --diff main...HEAD -L 2           # what this branch touched, as a tree
 sprout github.com/owner/repo --ai        # the same, for a repo you haven't cloned
@@ -115,6 +116,33 @@ Reading order for bubbletea
   4. tea.go                      used by 25 files
   5. mouse.go                    used by 7 files
 ```
+
+## `tour`: get oriented in one command
+
+`sprout tour` is `--entry` with context: the README's opening line, the
+ecosystems and languages, the top-level layout, why each file is on the reading
+list, and what to run next.
+
+```text
+$ sprout tour testdata/tour
+Tour of tour
+
+Purpose (README.md excerpt): A small command that prints a greeting.
+...
+Start here:
+  1. README.md — project overview (README)
+  2. cmd/app/main.go — likely entry point (filename convention)
+  3. internal/greeting/greeting.go — used by 1 file
+
+Next (run from the directory you toured; POSIX shell or PowerShell):
+  sprout context './cmd/app/main.go'
+```
+
+`--limit N` (default 8, up to 50) sets how many reading steps and directories
+are shown; anything left out is counted. `--json` prints a stable,
+versioned object, documented in [docs/tour-json.md](docs/tour-json.md). Tour is
+offline and read-only: it respects ignore rules, skips symlinks, and never runs
+the commands it suggests. To map a folder named `tour`, write `sprout ./tour`.
 
 ## `deps` and `dependents`: what a file touches
 
