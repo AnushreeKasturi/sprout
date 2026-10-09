@@ -180,7 +180,7 @@ func runSubcommand(name string, args []string, stdout, stderr io.Writer) (int, b
 	return 0, false
 }
 
-func run(args []string, out, stderr io.Writer) int {
+func run(args []string, out, stderr io.Writer) int { // skipcq: GO-R1005 pre-existing; mode dispatch is one flat list of flags
 	// One write per line made printing a 30k-file tree take seconds.
 	buf := bufio.NewWriterSize(out, 64<<10)
 	defer buf.Flush()

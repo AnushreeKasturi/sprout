@@ -144,8 +144,8 @@ func gatherTour(root string, t *Tree, g *Graph, visible map[string]bool, limit i
 		}
 	}
 	for _, n := range t.Root.Children {
-		if !n.IsDir {
-			continue
+		if !n.IsDir || strings.HasPrefix(n.Name, ".") {
+			continue // .github and editor folders aren't where the code lives
 		}
 		if len(r.Layout) == limit {
 			r.OmittedLayout++

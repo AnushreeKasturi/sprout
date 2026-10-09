@@ -131,6 +131,7 @@ func TestTourLimitsAndIgnoredFiles(t *testing.T) {
 	dir := tourFixture(t)
 	write(t, dir, ".sproutignore", "README.md\ngo.mod\nignored/\n")
 	write(t, dir, "ignored/main.py", "secret")
+	write(t, dir, ".github/workflows/ci.yml", "on: push")
 	for i := 0; i < 20; i++ {
 		write(t, dir, fmt.Sprintf("service%02d/main.py", i), "print('never executed')")
 	}
