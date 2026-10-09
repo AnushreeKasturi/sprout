@@ -82,16 +82,16 @@ type fileFacts struct {
 // even through symlinks: a cloned project must not choose files to read
 // from elsewhere on the machine. A FIFO, device or oversized file is never read.
 func jsConfigPath(root string) func(string) string {
-	real, err := resolveRoot(root)
+	resolved, err := resolveRoot(root)
 	if err != nil {
 		return func(string) string { return "" }
 	}
-	top := gitTop(real)
+	top := gitTop(resolved)
 	if top == "" {
-		top = real
+		top = resolved
 	}
 	return func(rel string) string {
-		within, err := filepath.Rel(top, filepath.Join(real, filepath.FromSlash(rel)))
+		within, err := filepath.Rel(top, filepath.Join(resolved, filepath.FromSlash(rel)))
 		if err != nil {
 			return ""
 		}
