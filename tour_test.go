@@ -51,13 +51,21 @@ func tourJSON(t *testing.T, dir string, args ...string) (tourResult, string) {
 	return r, out
 }
 
-func TestTourFixture(t *testing.T) {
+func TestTourDeterministic(t *testing.T) {
 	dir := tourFixture(t)
-	r, first := tourJSON(t, dir)
+	_, first := tourJSON(t, dir)
 	_, second := tourJSON(t, dir)
 	if first != second || strings.Contains(first, dir) {
 		t.Fatal("JSON must be deterministic and must not expose the root path")
 	}
+	before, _, code := runCLI(t, "tour", "--json", dir)
+	if code != 0 || before != first {
+		t.Fatal("flags before/after the path must be equivalent")
+	}
+}
+
+func TestTourFixtureEvidence(t *testing.T) {
+	r, _ := tourJSON(t, tourFixture(t))
 	if r.SchemaVersion != 1 || r.Command != "tour" || r.Project != "greetings" || r.Files != 6 || r.Directories != 5 {
 		t.Fatalf("metadata: %+v", r)
 	}
@@ -67,6 +75,11 @@ func TestTourFixture(t *testing.T) {
 	if !reflect.DeepEqual(r.Projects, []ProjectInfo{{"go.mod", "Go", "go modules"}}) || r.Languages["Go"] != 3 {
 		t.Fatalf("ecosystems/languages: %+v / %v", r.Projects, r.Languages)
 	}
+}
+
+func TestTourReadingPlan(t *testing.T) {
+	dir := tourFixture(t)
+	r, _ := tourJSON(t, dir)
 	want := []tourStep{{"README.md", "project overview (README)"}, {"cmd/app/main.go", "likely entry point (filename convention)"}, {"internal/greeting/greeting.go", "used by 1 file"}}
 	if !reflect.DeepEqual(r.ReadingOrder, want) {
 		t.Fatalf("reading order: %+v", r.ReadingOrder)
@@ -79,10 +92,6 @@ func TestTourFixture(t *testing.T) {
 		if code != 0 || !strings.Contains(out, want) {
 			t.Errorf("text missing %q: %s", want, out)
 		}
-	}
-	before, _, code := runCLI(t, "tour", "--json", dir)
-	if code != 0 || before != first {
-		t.Fatal("flags before/after the path must be equivalent")
 	}
 	// The underlying reading sequence is unchanged for existing --entry users.
 	entry, _, code := runCLI(t, dir, "--entry", "--no-config")
@@ -286,13 +295,16 @@ func TestTourDoesNotRunFSMonitor(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "executed")
 	t.Setenv("SPROUT_TEST_MONITOR", marker)
 	write(t, dir, "monitor.sh", "#!/bin/sh\nprintf ran > \"$SPROUT_TEST_MONITOR\"\n")
-	if err := os.Chmod(filepath.Join(dir, "monitor.sh"), 0755); err != nil {
-		t.Fatal(err)
-	}
-	git(t, dir, "config", "core.fsmonitor", "./monitor.sh")
+	git(t, dir, "config", "core.fsmonitor", "sh ./monitor.sh")
 	tourJSON(t, dir)
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("analysis executed a repository hook: %v", err)
+	}
+	// Positive control: ordinary Git invokes this fixture hook, proving
+	// the assertion above depends on Sprout disabling it.
+	git(t, dir, "ls-files")
+	if data, err := os.ReadFile(marker); err != nil || string(data) != "ran" {
+		t.Fatalf("fsmonitor fixture did not run in the control: %q, %v", data, err)
 	}
 }
 

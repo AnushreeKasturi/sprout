@@ -166,31 +166,7 @@ func gatherTour(root string, t *Tree, g *Graph, visible map[string]bool, limit i
 			}
 		}
 	}
-	for _, name := range []string{"README.md", "README", "readme.md", "README.rst", "README.txt"} {
-		if !visible[name] {
-			continue
-		}
-		r.ReadingOrder = append(r.ReadingOrder, tourStep{name, "project overview (README)"})
-		f, err := os.Open(filepath.Join(root, name))
-		if err == nil {
-			text := readmeProse(io.LimitReader(f, 64<<10))
-			f.Close()
-			if text != "" {
-				r.Purpose = &tourPurpose{name, tourExcerpt(text, root)}
-			}
-		}
-		break
-	}
-	for _, step := range readingOrder(root, t, g, maxGraphFiles+16) {
-		if !visible[step.rel] || step.why == "what the project is" {
-			continue
-		}
-		why := step.why
-		if why == "entry point" {
-			why = "likely entry point (filename convention)"
-		}
-		r.ReadingOrder = append(r.ReadingOrder, tourStep{step.rel, why})
-	}
+	r.Purpose, r.ReadingOrder = tourReadingOrder(root, t, g, visible)
 	if len(r.ReadingOrder) > limit {
 		r.OmittedReading = len(r.ReadingOrder) - limit
 		r.ReadingOrder = r.ReadingOrder[:limit]
@@ -203,6 +179,37 @@ func gatherTour(root string, t *Tree, g *Graph, visible map[string]bool, limit i
 	}
 	r.NextCommands = append(r.NextCommands, []string{"sprout", "--ai"}, []string{"sprout", "-L", "2"})
 	return r
+}
+
+func tourReadingOrder(root string, t *Tree, g *Graph, visible map[string]bool) (*tourPurpose, []tourStep) {
+	var purpose *tourPurpose
+	steps := []tourStep{}
+	for _, name := range []string{"README.md", "README", "readme.md", "README.rst", "README.txt"} {
+		if !visible[name] {
+			continue
+		}
+		steps = append(steps, tourStep{name, "project overview (README)"})
+		f, err := os.Open(filepath.Join(root, name))
+		if err == nil {
+			text := readmeProse(io.LimitReader(f, 64<<10))
+			f.Close()
+			if text != "" {
+				purpose = &tourPurpose{name, tourExcerpt(text, root)}
+			}
+		}
+		break
+	}
+	for _, step := range readingOrder(root, t, g, maxGraphFiles+16) {
+		if !visible[step.rel] || step.why == "what the project is" {
+			continue
+		}
+		why := step.why
+		if why == "entry point" {
+			why = "likely entry point (filename convention)"
+		}
+		steps = append(steps, tourStep{step.rel, why})
+	}
+	return purpose, steps
 }
 
 var tourURLs = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.-]*://[^\s<>"']+`)
@@ -273,8 +280,17 @@ func printTour(w io.Writer, r tourResult) error {
 	if r.OmittedReading > 0 {
 		fmt.Fprintf(&b, "  +%d reading candidates omitted; raise --limit (maximum 50).\n", r.OmittedReading)
 	}
-	fmt.Fprintln(&b, "\nNext (run from the directory you toured; POSIX shell or PowerShell):")
-	for _, argv := range r.NextCommands {
+	writeTourNext(&b, r.NextCommands)
+	for _, caveat := range r.Caveats {
+		fmt.Fprintf(&b, "\nNote: %s\n", tourText(caveat))
+	}
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+func writeTourNext(b *strings.Builder, commands [][]string) {
+	fmt.Fprintln(b, "\nNext (run from the directory you toured; POSIX shell or PowerShell):")
+	for _, argv := range commands {
 		// Only the context path is repository-controlled. Single quotes
 		// prevent expansion; PowerShell and POSIX escape apostrophes differently.
 		parts := append([]string{}, argv...)
@@ -288,11 +304,6 @@ func printTour(w io.Writer, r tourResult) error {
 			}
 			parts[2] = "'" + strings.ReplaceAll(parts[2], "'", escape) + "'"
 		}
-		fmt.Fprintf(&b, "  %s\n", strings.Join(parts, " "))
+		fmt.Fprintf(b, "  %s\n", strings.Join(parts, " "))
 	}
-	for _, caveat := range r.Caveats {
-		fmt.Fprintf(&b, "\nNote: %s\n", tourText(caveat))
-	}
-	_, err := io.WriteString(w, b.String())
-	return err
 }
