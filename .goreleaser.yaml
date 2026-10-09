@@ -51,13 +51,18 @@ homebrew_casks:
       zsh: completions/_sprout
       fish: completions/sprout.fish
     manpages: [manpages/sprout.1]
-    hooks:
-      post:
-        # The binaries aren't notarized; without this macOS refuses to run them.
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/sprout"]
-          end
+    # The binaries aren't notarized; without this macOS refuses to run them.
+    # Written as postflight_steps by hand: GoReleaser's hooks only generate
+    # the `postflight` block that Homebrew has deprecated.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr",
+              args:           ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/sprout"],
+              writable_paths: ["sprout"],
+              writable_base:  :staged_path
+        end
+      end
 
 scoops:
   - name: sprout
