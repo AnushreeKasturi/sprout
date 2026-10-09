@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -24,11 +22,8 @@ func readingOrder(root string, t *Tree, g *Graph, limit int) []readingStep {
 			steps = append(steps, readingStep{rel, why})
 		}
 	}
-	for _, name := range []string{"README.md", "README", "readme.md", "README.rst"} {
-		if _, err := os.Stat(filepath.Join(root, name)); err == nil {
-			add(name, "what the project is")
-			break
-		}
+	if name := readmeFile(root); name != "" {
+		add(name, "what the project is")
 	}
 	entries, _ := keyFiles(t.Root)
 	for _, e := range entries {

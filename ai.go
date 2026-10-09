@@ -3,10 +3,13 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"html"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -285,37 +288,74 @@ func topLanguages(langs map[string]int, total, limit int) string {
 	return strings.Join(parts, ", ")
 }
 
+var readmeNames = []string{"readme.md", "readme", "readme.rst", "readme.txt"}
+
+// readmeFile names the README at root in any case (Readme.md, README.rst...),
+// or returns "" if there is none.
+func readmeFile(root string) string {
+	entries, _ := os.ReadDir(root)
+	best, rank := "", len(readmeNames)
+	for _, e := range entries {
+		if i := slices.Index(readmeNames, strings.ToLower(e.Name())); i >= 0 && i < rank && !e.IsDir() {
+			best, rank = e.Name(), i
+		}
+	}
+	return best
+}
+
 // readmeSummary returns the first prose line of the README: usually the
 // one-sentence pitch, which tells a model more than any file name.
 func readmeSummary(root string) string {
-	for _, name := range []string{"README.md", "README", "readme.md", "README.rst", "README.txt"} {
-		f, err := os.Open(filepath.Join(root, name))
-		if err != nil {
-			continue
-		}
-		defer f.Close()
-		return readmeProse(f)
+	name := readmeFile(root)
+	if name == "" {
+		return ""
 	}
-	return ""
+	f, err := os.Open(filepath.Join(root, name))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	return readmeProse(io.LimitReader(f, 64<<10))
 }
 
-// readmeProse is shared by the map and tour; it reads at most the opening
-// 40 lines and returns the same short excerpt used by --ai.
+var (
+	mdLink     = regexp.MustCompile(`!?\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])`) // [text](url) and [text][ref]
+	mdEscape   = regexp.MustCompile(`\\([\\*_{}\[\]()#+.!-])`)
+	mdEmphasis = strings.NewReplacer("**", "", "__", "", "`", "")
+)
+
+// readmeProse is shared by the map and tour: the first prose line in the
+// opening 40 lines, as plain text. Headings, badges and HTML are skipped.
 func readmeProse(r io.Reader) string {
 	sc := bufio.NewScanner(r)
+	var lines []string
 	for i := 0; i < 40 && sc.Scan(); i++ {
-		line := strings.TrimSpace(sc.Text())
+		lines = append(lines, strings.TrimSpace(sc.Text()))
+	}
+	for i, line := range lines {
 		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") ||
-			strings.HasPrefix(line, "[!") || strings.HasPrefix(line, "<") || strings.HasPrefix(line, "=") {
+			strings.HasPrefix(line, "[!") || strings.HasPrefix(line, "[<") || strings.HasPrefix(line, "<") || strings.HasPrefix(line, "=") {
 			continue
 		}
-		line = strings.TrimLeft(line, "-*> ")
-		if len(line) > 200 {
-			line = line[:200] + "…"
+		if i+1 < len(lines) && setextUnderline(lines[i+1]) {
+			continue // "Title" over "=====" is a heading too
+		}
+		line = mdLink.ReplaceAllString(line, "$1")
+		line = mdEscape.ReplaceAllString(mdEmphasis.Replace(line), "$1")
+		line = strings.Trim(html.UnescapeString(line), "-*_> \u2002\u2003")
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > 200 {
+			line = string(r[:200]) + "…"
 		}
 		return line
 	}
 	return ""
+}
+
+func setextUnderline(s string) bool {
+	return s != "" && (strings.Trim(s, "=") == "" || strings.Trim(s, "-") == "")
 }
 
 var entryNames = map[string]bool{

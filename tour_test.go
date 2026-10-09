@@ -252,29 +252,43 @@ func TestTourRespectsGitIgnore(t *testing.T) {
 	}
 }
 
-func TestGraphConfigInheritanceConfined(t *testing.T) {
+// A monorepo app's tsconfig often extends a base config above the root.
+func TestGraphConfigInheritsFromParent(t *testing.T) {
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "project")
-	write(t, parent, "outside.json", `{"compilerOptions":{"paths":{"alias":["./project/lib.ts"]}}}`)
-	write(t, dir, "tsconfig.json", `{"extends":"../outside.json"}`)
+	write(t, parent, "base.json", `{"compilerOptions":{"paths":{"alias":["lib.ts"]}}}`)
+	write(t, dir, "tsconfig.json", `{"extends":"../base.json","compilerOptions":{"baseUrl":"."}}`)
 	write(t, dir, "main.ts", `import { value } from 'alias';`)
 	write(t, dir, "lib.ts", `export const value = 1;`)
 	tree, err := BuildTree(dir, Options{MaxDepth: -1, Stat: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := buildGraph(dir, tree, false, false)
-	if got := deps(t, g, "main.ts"); len(got) != 0 {
-		t.Fatalf("config outside root influenced graph: %v", got)
+	if got := deps(t, buildGraph(dir, tree, false, false), "main.ts"); !reflect.DeepEqual(got, []string{"lib.ts"}) {
+		t.Fatalf("inherited paths ignored: %v", got)
 	}
-	// A link inside the root must not permit reading the same outside config.
-	if err := os.Symlink(filepath.Join(parent, "outside.json"), filepath.Join(dir, "linked.json")); err != nil {
-		t.Skipf("symlinks unavailable: %v", err)
+	// A directory (or FIFO) named as the base config is never read.
+	write(t, dir, "tsconfig.json", `{"extends":"../"}`)
+	if got := deps(t, buildGraph(dir, tree, false, false), "main.ts"); len(got) != 0 {
+		t.Fatalf("non-file config: %v", got)
 	}
-	write(t, dir, "tsconfig.json", `{"extends":"./linked.json"}`)
-	g = buildGraph(dir, tree, false, false)
-	if got := deps(t, g, "main.ts"); len(got) != 0 {
-		t.Fatalf("symlink config outside root influenced graph: %v", got)
+}
+
+func TestReadmeProse(t *testing.T) {
+	for in, want := range map[string]string{
+		"# Sprout\n\n**Map your codebase.**\n":                                    "Map your codebase.",
+		"Anyhow&ensp;¯\\\\_(ツ)\\_/¯\n=====\n\nProvides [anyhow::Error][Error].\n": "Provides anyhow::Error.",
+		"[<img src=x>](y)\n- ⚡ [**FastAPI**](https://x) for the `API`.\n":         "⚡ FastAPI for the API.",
+		"---\n\nText &amp; more\n":                                                "Text & more",
+	} {
+		if got := readmeProse(strings.NewReader(in)); got != want {
+			t.Errorf("readmeProse(%q) = %q, want %q", in, got, want)
+		}
+	}
+	dir := t.TempDir()
+	write(t, dir, "Readme.md", "Hello.")
+	if got := readmeFile(dir); got != "Readme.md" || readmeSummary(dir) != "Hello." {
+		t.Fatalf("readmeFile = %q", got)
 	}
 }
 
@@ -297,6 +311,9 @@ func TestTourDoesNotRunFSMonitor(t *testing.T) {
 	write(t, dir, "monitor.sh", "#!/bin/sh\nprintf ran > \"$SPROUT_TEST_MONITOR\"\n")
 	git(t, dir, "config", "core.fsmonitor", "sh ./monitor.sh")
 	tourJSON(t, dir)
+	runCLI(t, dir, "--git", "--no-config")
+	chdir(t, dir)
+	runCLI(t, "impact")
 	if _, err := os.Stat(marker); !os.IsNotExist(err) {
 		t.Fatalf("analysis executed a repository hook: %v", err)
 	}

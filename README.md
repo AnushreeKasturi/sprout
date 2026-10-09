@@ -119,56 +119,30 @@ Reading order for bubbletea
 
 ## `tour`: get oriented in one command
 
-`--entry` gives you a reading list. `sprout tour` adds the README's opening
-prose, detected ecosystems and languages, a directory overview, reasons for
-what to read, and commands to try next:
-
-```bash
-sprout tour                     # current directory
-sprout tour ./project --limit 12 # more reading steps and top-level directories
-sprout tour ./project --json     # deterministic, schemaVersion 1
-```
-
-To reproduce a small example from this source checkout:
-
-```bash
-go run . tour testdata/tour
-```
-
-The reading section is:
+`sprout tour` is `--entry` with context: the README's opening line, the
+ecosystems and languages, the top-level layout, why each file is on the reading
+list, and what to run next.
 
 ```text
+$ sprout tour testdata/tour
+Tour of tour
+
+Purpose (README.md excerpt): A small command that prints a greeting.
+...
 Start here:
   1. README.md — project overview (README)
   2. cmd/app/main.go — likely entry point (filename convention)
   3. internal/greeting/greeting.go — used by 1 file
+
+Next (run from the directory you toured; POSIX shell or PowerShell):
+  sprout context './cmd/app/main.go'
 ```
 
-The full output also explains that this example is a Go project, shows its
-`cmd/`, `docs/` and `internal/` layout, and suggests `sprout context
-'./cmd/app/main.go'`. Run next commands **from the directory you toured**.
-They are suggestions, never executed by the tour. On Windows they use
-PowerShell quoting; elsewhere they use POSIX shell quoting.
-
-Tour works offline, without an account, LLM, or language runtime. It accepts
-local directories and respects Git ignores (when Git is available), built-in
-fallback exclusions, and `.sproutignore`. Like the graph subcommands, it does
-not load tree-view config. Symlinks and special files are skipped;
-`.sproutignore` itself must be a regular file. Missing READMEs, manifests or
-recognized source languages produce an explicit fallback instead of invented
-architecture. Ecosystems come from root manifests; framework detection is not
-claimed. Entry filenames and static dependencies are evidence, not proof of
-runtime behavior.
-
-`--limit` defaults to 8, accepts 1–50, and bounds the reading list and top-level
-directories. Omitted counts are shown. This limits output, not the walk or
-graph build. Test files, examples and vendored code are not ranked; the existing
-graph caps still apply. Existing `--entry` and `--ai` output remain available.
-To map a directory named `tour`, use `sprout ./tour`.
-
-The [tour JSON contract](docs/tour-json.md) documents fields and limitations.
-The [implementation plan](docs/implementation-plan.md) and
-[architecture decision](docs/adr/0001-guided-tour.md) describe later phases.
+`--limit N` (default 8, up to 50) sets how many reading steps and directories
+are shown; anything left out is counted. `--json` prints a stable,
+versioned object, documented in [docs/tour-json.md](docs/tour-json.md). Tour is
+offline and read-only: it respects ignore rules, skips symlinks, and never runs
+the commands it suggests. To map a folder named `tour`, write `sprout ./tour`.
 
 ## `deps` and `dependents`: what a file touches
 

@@ -25,7 +25,8 @@ func openRepo(dir string) (*gitRepo, error) {
 }
 
 func (r *gitRepo) run(args ...string) (string, error) {
-	out, err := exec.Command("git", append([]string{"-C", r.dir}, args...)...).Output()
+	// Never run a repository's fsmonitor hook: the repository may be untrusted.
+	out, err := exec.Command("git", append([]string{"-c", "core.fsmonitor=false", "-C", r.dir}, args...)...).Output()
 	if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
 		return "", fmt.Errorf("git %s: %s", args[0], strings.TrimSpace(string(ee.Stderr)))
 	}

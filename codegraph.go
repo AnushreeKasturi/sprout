@@ -121,17 +121,10 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 	r := resolver{exists: exists, goModules: goModules(t, goMods), javaIndex: javaIndex(nodes), pyRoots: pyRoots}
 	r.rs = loadRSProject(cargos, func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) }, exists)
 	if len(jsConfigs)+len(jsManifests) > 0 {
-		configRoot, err := resolveRoot(root)
-		if err != nil {
-			configRoot = root // vanished root: individual reads fail normally
-		}
 		r.js = loadJSProject(jsConfigs, jsManifests, func(rel string) string {
-			// Config inheritance may name files absent from the tree. Keep
-			// those reads inside the root, including through symlinks.
-			p, err := confine(configRoot, rel)
-			if err != nil {
-				return ""
-			}
+			// Inherited configs may live outside the root (a monorepo's base
+			// tsconfig), but never read a FIFO, device or oversized file.
+			p := filepath.Join(root, filepath.FromSlash(rel))
 			info, err := os.Stat(p)
 			if err != nil || !info.Mode().IsRegular() || info.Size() > maxSourceSize {
 				return ""
