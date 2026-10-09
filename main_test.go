@@ -44,7 +44,7 @@ func TestVersion(t *testing.T) {
 
 func TestHelp(t *testing.T) {
 	out, _, code := runCLI(t, "--help")
-	if code != 0 || !strings.Contains(out, "Usage:") {
+	if code != 0 || !strings.Contains(out, "\nUsage\n") || strings.Contains(out, "\x1b[") {
 		t.Errorf("--help: exit %d, output %q", code, out)
 	}
 	_, errOut, code := runCLI(t, "--nope")

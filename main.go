@@ -8,68 +8,77 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"strings"
 	"time"
 )
 
+// usage is printed by --help. Lines that don't start with a space are
+// headings, bold on a terminal (printUsage).
 const usage = `sprout: map your codebase, for you and your AI agent
 
-Usage:
-  sprout [path] [flags]
-  sprout github.com/owner/repo [flags]   map a remote repository (any git URL works)
-  sprout mcp [root]       serve the map, tree, diffs, deps, dependents and impact to agents (MCP)
-  sprout deps FILE        what FILE depends on, and why; --depth N follows more hops (-1 for all)
-  sprout dependents FILE  what depends on FILE, tests included (--no-tests to skip); --json
-  sprout impact [FILE...] what a change could affect and the tests to run: the files named,
-                          or uncommitted changes; --staged, --diff main...HEAD, --commit REV
-  sprout context FILE     what to know before editing FILE: what it declares, the signatures it
-                          uses from each dependency, its users and tests; --budget N tokens
-  sprout tour [path]      guided onboarding: purpose, layout, reading order and next commands;
-                          --json for scripts, --limit N for more recommendations (default 8)
-                          (to map a folder named like a command, e.g. deps, write ./deps)
+Usage
+  sprout [path] [flags]           tree of a folder (default .)
+  sprout github.com/owner/repo    a remote repository; any git URL works
 
-Views:
-  (default)               tree of the project, respecting .gitignore
-  --ai                    compact project map for LLM prompts, with key files and their
-                          signatures; --budget N tokens (default 2000)
-  --entry                 where to start reading: README, entry points, most imported files
-  --diff REV              only what changed in REV, e.g. main...HEAD or HEAD~3
-  --stats                 files, size, languages, detected stack
-  --json                  tree and stats as compact JSON (schemaVersion 1); --pretty indents it
+Commands
+  tour [path]           purpose, layout and where to start reading
+  deps FILE             what FILE depends on, and why
+  dependents FILE       what depends on FILE, tests included
+  impact [FILE...]      what a change could break, and the tests to run
+  context FILE          what to know before editing FILE, in a token budget
+  mcp [root]            serve all of this to coding agents over MCP
+  Each command has --help. To map a folder named like one, write ./deps.
 
-Sizes and order:
-  --size                  file sizes and true directory totals (du-style, even past --depth)
-  --sort name|size|time   largest or newest first; -r reverses; --dirs-first
-  --si                    powers of 1000 instead of 1024
+Views
+  --ai                  project map for LLMs, with signatures (--budget N)
+  --entry               reading order: README, entry points, most-used files
+  --diff REV            only what changed in REV, e.g. main...HEAD or HEAD~3
+  --stats               files, size, languages and detected stack
+  --json                tree and stats as JSON (--pretty to indent)
 
-Annotations:
-  --git                   mark changed files: M modified, A added, D deleted, R renamed, ? untracked, U conflict
-  --churn                 commits per path, to spot hotspots; --since '90 days ago'
+Sizes and order
+  --size                file sizes and true folder totals, even past --depth
+  --sort KEY            name, size or time; -r reverses; --dirs-first
+  --si                  sizes in powers of 1000 instead of 1024
 
-Filtering:
-  -L, --depth N           limit depth
-  -a, --all               show hidden and ignored entries
-  --hidden                show dotfiles
-  --no-ignore             skip .gitignore, .sproutignore and the built-in ignore list
-  --ignore PATTERNS       hide matches (gitignore syntax): '*.log', 'src/gen/', 'docs/**/*.png'
-  --only PATTERNS         show only matching files: '*.go', 'web/src/**/*.tsx'
-  --changed-within AGE    only files modified recently: 30m, 12h, 7d, 2w
-  --max-files N           list at most N files per folder, then "… 37 more files"
-  --hyperlink             clickable names in terminals that support links (put it in your config)
+Annotations
+  --git                 mark changed files: M, A, D, R, ? untracked, U conflict
+  --churn               commits per path to spot hotspots; --since '90 days ago'
 
-Config:
-  ~/.config/sprout/config and the nearest .sproutrc hold default flags, one per line.
-  --no-config             ignore them for this run
+Filtering
+  -L, --depth N         limit depth
+  -a, --all             show hidden and ignored entries
+  --hidden              show dotfiles
+  --no-ignore           don't hide .gitignore, .sproutignore or built-in matches
+  --ignore PATTERNS     hide matches, gitignore syntax: '*.log', 'src/gen/'
+  --only PATTERNS       show only matches: '*.go', 'web/src/**/*.tsx'
+  --changed-within AGE  only files modified recently: 30m, 12h, 7d, 2w
+  --max-files N         at most N files per folder, then "… 37 more files"
+  --hyperlink           clickable file names in terminals that support links
 
-  --completion SHELL      print completions for bash, zsh, fish or powershell
-  --man                   print the man page
-  --version               print version
+Config
+  --no-config           ignore config files (~/.config/sprout/config, .sproutrc)
+  --completion SHELL    completions for bash, zsh, fish or powershell
+  --man                 print the man page
+  --version             print the version
 
-Examples:
+Examples
   sprout -L 2
+  sprout tour
   sprout --ai | pbcopy
-  sprout --diff main...HEAD -L 2
-  sprout --churn --since '6 months ago'
+  sprout impact --diff main...HEAD
+  sprout github.com/charmbracelet/bubbletea --entry
 `
+
+// printUsage prints usage with bold headings when w is a terminal.
+func printUsage(w io.Writer, color bool) {
+	for _, line := range strings.SplitAfter(usage, "\n") {
+		if line != "\n" && !strings.HasPrefix(line, " ") {
+			line = paint(color, bold, strings.TrimSuffix(line, "\n")) + "\n"
+		}
+		io.WriteString(w, line)
+	}
+}
 
 // version is set at release time via -ldflags "-X main.version=...".
 var version = "dev"
@@ -194,7 +203,7 @@ func run(args []string, out, stderr io.Writer) int { // skipcq: GO-R1005 pre-exi
 
 	f, path, err := parseFlags(args, stderr)
 	if err == flag.ErrHelp {
-		fmt.Fprint(stdout, usage)
+		printUsage(stdout, useColor(out))
 		return 0
 	}
 	if err != nil {

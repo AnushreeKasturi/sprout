@@ -251,6 +251,10 @@ func serveMCP(args []string, in io.Reader, out, errOut io.Writer) int {
 	if len(args) > 0 {
 		root = args[0]
 	}
+	if root == "-h" || root == "--help" || root == "-help" {
+		fmt.Fprintln(out, "Usage: sprout mcp [root]\n\nServes Sprout to coding agents over MCP on stdio, for the project at root (default .).")
+		return 0
+	}
 	root, err := resolveRoot(root)
 	if err != nil {
 		fmt.Fprintln(errOut, "sprout mcp:", err)
