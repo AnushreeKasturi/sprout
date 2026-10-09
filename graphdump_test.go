@@ -42,7 +42,13 @@ func TestDumpGraph(t *testing.T) {
 		if f.Lang != "go" {
 			// The same guards parseSource applies.
 			if src, err := os.ReadFile(fsPath[gf.Rel]); err == nil && len(src) <= maxSourceSize && bytes.IndexByte(src, 0) < 0 {
-				_, specs := scanDecls(f.Lang, src)
+				// Import statements only: for Rust that's use and mod, not the
+				// qualified paths in code that scanDecls also resolves.
+				_, specs := scanDecls(f.Lang, src, false)
+				if f.Lang == "rs" {
+					code := stripRustComments(src)
+					specs = rsImports(code, inlineModules(code))
+				}
 				f.Specs = append(f.Specs, specs...)
 			}
 		}

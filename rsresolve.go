@@ -223,21 +223,14 @@ var (
 
 // rsImports lists a file's module declarations (bare names) and the paths
 // its use declarations import, expanded: use a::{b, c::d} is a::b and a::c::d.
-func rsImports(src []byte) []string {
-	code := stripRustComments(src)
+func rsImports(code []byte, inline [][2]int) []string {
 	var specs []string
 	for _, m := range rsModDecl.FindAllSubmatch(code, -1) {
 		specs = append(specs, string(m[1]))
 	}
-	inline := inlineModules(code)
 	for _, m := range rsUse.FindAllSubmatchIndex(code, -1) {
 		tree := rsSep.ReplaceAllString(strings.Join(strings.Fields(string(code[m[2]:m[3]])), " "), "$1")
-		depth := 0
-		for _, r := range inline {
-			if m[0] > r[0] && m[0] < r[1] {
-				depth++
-			}
-		}
+		depth := inlineDepth(inline, m[0])
 		for _, p := range expandUse(tree, "") {
 			if strings.Contains(p, "::") {
 				specs = append(specs, outOfInline(p, depth))
@@ -253,22 +246,14 @@ var rsPath = regexp.MustCompile(`\b[A-Za-z_]\w*(?:::[A-Za-z_]\w*)+`)
 // crate::flags::parse::lookup(..) or grep::printer::Stats, which depend on
 // a module without a use declaration. Each is listed once; ones that start
 // with something other than a module of the project resolve to nothing.
-func rsCodePaths(src []byte) []string {
-	code := stripRustComments(src)
-	inline := inlineModules(code)
+func rsCodePaths(code []byte, inline [][2]int) []string {
 	seen := map[string]bool{}
 	var out []string
 	for _, m := range rsPath.FindAllIndex(code, -1) {
 		if m[0] >= 2 && code[m[0]-1] == ':' {
 			continue // the tail of a longer path
 		}
-		depth := 0
-		for _, r := range inline {
-			if m[0] > r[0] && m[0] < r[1] {
-				depth++
-			}
-		}
-		p := outOfInline(string(code[m[0]:m[1]]), depth)
+		p := outOfInline(string(code[m[0]:m[1]]), inlineDepth(inline, m[0]))
 		if first, _, _ := strings.Cut(p, "::"); first == "std" || first == "core" || first == "alloc" || seen[p] {
 			continue
 		}
@@ -276,6 +261,26 @@ func rsCodePaths(src []byte) []string {
 		out = append(out, p)
 	}
 	return out
+}
+
+// rsSpecs is everything a Rust file names that could be a module of the
+// project: mod declarations, use paths and qualified paths in code. Comments
+// are stripped and inline modules found once, for both scans.
+func rsSpecs(src []byte) []string {
+	code := stripRustComments(src)
+	inline := inlineModules(code)
+	return append(rsImports(code, inline), rsCodePaths(code, inline)...)
+}
+
+// inlineDepth is how many inline modules enclose byte offset pos.
+func inlineDepth(inline [][2]int, pos int) int {
+	depth := 0
+	for _, r := range inline {
+		if pos > r[0] && pos < r[1] {
+			depth++
+		}
+	}
+	return depth
 }
 
 var rsInlineMod = regexp.MustCompile(`\bmod\s+\w+\s*\{`)
@@ -341,10 +346,7 @@ func expandUse(tree, prefix string) []string {
 		return []string{join(prefix, name)}
 	}
 	head := strings.TrimSuffix(tree[:open], "::")
-	body := tree[open+1:]
-	if strings.HasSuffix(body, "}") {
-		body = body[:len(body)-1]
-	}
+	body := strings.TrimSuffix(tree[open+1:], "}")
 	var out []string
 	depth, start := 0, 0
 	for i := 0; i <= len(body); i++ {

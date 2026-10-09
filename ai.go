@@ -43,7 +43,7 @@ func AIMap(t *Tree, root string, budget int) string {
 	if len(stack) > 0 {
 		fmt.Fprintf(&b, "stack: %s\n", strings.Join(stack, ", "))
 	}
-	if langs := topLanguages(s.Languages, s.Files, 6); langs != "" {
+	if langs := topLanguages(s.Languages, 6); langs != "" {
 		fmt.Fprintf(&b, "languages: %s\n", langs)
 	}
 	fmt.Fprintf(&b, "size: %s, %s\n", plural(s.Files, "file"), plural(s.Directories, "directory"))
@@ -254,7 +254,7 @@ func summaries(root *Node) map[*Node]string {
 	return out
 }
 
-func topLanguages(langs map[string]int, total, limit int) string {
+func topLanguages(langs map[string]int, limit int) string {
 	type lc struct {
 		name string
 		n    int
@@ -265,7 +265,7 @@ func topLanguages(langs map[string]int, total, limit int) string {
 		known[l] = true
 	}
 	var list []lc
-	total = 0
+	total := 0
 	for name, n := range langs {
 		if known[name] {
 			list = append(list, lc{name, n})

@@ -140,7 +140,7 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	sort.Strings(changed)
 	sort.Strings(deleted)
 
-	g, err := projectGraph(root)
+	g, err := projectGraph(root, false)
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1
@@ -196,13 +196,14 @@ func runnableTest(f GraphFile) bool {
 	return true
 }
 
-// projectGraph builds the dependency graph of root, tests included.
-func projectGraph(root string) (*Graph, error) {
+// projectGraph builds the dependency graph of root, tests included; with
+// symbols, each file keeps its declarations' signatures.
+func projectGraph(root string, symbols bool) (*Graph, error) {
 	tree, err := BuildTree(root, Options{MaxDepth: -1, ShowHidden: true, Stat: true})
 	if err != nil {
 		return nil, err
 	}
-	return buildGraph(root, tree, true, false), nil
+	return buildGraph(root, tree, true, symbols), nil
 }
 
 func goTestPackages(tests []string) []string {
@@ -238,11 +239,10 @@ func printImpact(w io.Writer, g *Graph, res impactResult, all bool) {
 		}
 		return
 	}
-	var code, tests []queryHit
+	var code []queryHit
 	direct := 0
 	for _, h := range res.Affected {
 		if h.Test {
-			tests = append(tests, h)
 			continue
 		}
 		code = append(code, h)

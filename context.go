@@ -46,12 +46,11 @@ func runContext(args []string, root string, stdout, stderr io.Writer) int {
 	if root == "" {
 		root = projectRoot(abs)
 	}
-	tree, err := BuildTree(root, Options{MaxDepth: -1, ShowHidden: true, Stat: true})
+	g, err := projectGraph(root, true)
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1
 	}
-	g := buildGraph(root, tree, true, true)
 	rel, _ := filepath.Rel(root, abs)
 	rel = filepath.ToSlash(rel)
 	id, ok := g.ID(rel)

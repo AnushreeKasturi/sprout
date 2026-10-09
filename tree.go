@@ -26,6 +26,7 @@ type Node struct {
 	Rel      string // slash-separated path relative to the root; Tree.FSPath gives the filesystem path
 	IsDir    bool
 	Missing  bool      // not on disk: inserted for a git deletion, or part of a --diff tree
+	Special  bool      // a symlink, pipe, socket or device rather than a regular file or directory
 	Size     int64     // files: bytes; directories: total below, with Options.Sizes
 	ModTime  time.Time // directories: newest file below
 	Children []*Node
@@ -138,6 +139,54 @@ func pruneEmpty(n *Node) bool {
 }
 
 // populate fills node, the directory at dir on disk.
+// unreadable handles a directory that can't be listed: fatal at the root,
+// recorded on the node below it, so one unreadable subdirectory (e.g.
+// permission denied) doesn't abort the whole walk.
+func unreadable(node *Node, depth int, err error) error {
+	if depth == 0 {
+		return err
+	}
+	node.Err = err
+	return nil
+}
+
+// childPath is the relative path and name of entry name under parent. The
+// name shares rel's bytes rather than keeping the directory entry's own copy
+// of it alive.
+func childPath(parent, name string) (rel, base string) {
+	if parent == "" {
+		return name, name
+	}
+	rel = parent + "/" + name
+	return rel, rel[len(parent)+1:]
+}
+
+// special reports a symlink, pipe, socket or device. The type comes from
+// ReadDir, so this costs no syscall.
+func special(entry os.DirEntry) bool {
+	return !entry.IsDir() && !entry.Type().IsRegular()
+}
+
+// admit decides whether entry is shown. hidden means the filters left it
+// out, which counts as skipped; an entry that vanished is neither. info is
+// set when the options need sizes or times.
+func (w *walker) admit(entry os.DirEntry, rel, name string) (info os.FileInfo, shown, hidden bool) {
+	if w.hides(rel, name, entry.IsDir()) || (w.visible != nil && !w.visible[rel]) {
+		return nil, false, true
+	}
+	// Stat costs a syscall per entry; skip it when nothing will use it.
+	if w.opts.Stat || w.opts.Sizes || !w.opts.Since.IsZero() {
+		var err error
+		if info, err = entry.Info(); err != nil {
+			return nil, false, false // vanished between ReadDir and Lstat
+		}
+	}
+	if !w.opts.Since.IsZero() && !entry.IsDir() && info.ModTime().Before(w.opts.Since) {
+		return nil, false, true
+	}
+	return info, true, false
+}
+
 func (w *walker) populate(node *Node, dir string, depth int) error {
 	// Past --depth nothing is shown, but with --size the walk continues so
 	// directory totals are true totals, not just what's visible.
@@ -150,13 +199,7 @@ func (w *walker) populate(node *Node, dir string, depth int) error {
 	// os.ReadDir already returns entries sorted by name.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		if depth == 0 {
-			return err
-		}
-		// One unreadable subdirectory (e.g. permission denied) shouldn't
-		// abort the whole walk; record it and keep going.
-		node.Err = err
-		return nil
+		return unreadable(node, depth, err)
 	}
 
 	// One allocation for every child node in this directory instead of one
@@ -167,37 +210,16 @@ func (w *walker) populate(node *Node, dir string, depth int) error {
 	node.Children = make([]*Node, 0, len(entries))
 
 	for _, entry := range entries {
-		name := entry.Name()
-		rel := name
-		if node.Rel != "" {
-			rel = node.Rel + "/" + name
-			// Share rel's bytes rather than keeping the directory entry's
-			// own copy of the name alive.
-			name = rel[len(node.Rel)+1:]
-		}
-
-		if w.hides(rel, name, entry.IsDir()) || (w.visible != nil && !w.visible[rel]) {
-			if !beyond {
+		rel, name := childPath(node.Rel, entry.Name())
+		info, shown, hidden := w.admit(entry, rel, name)
+		if !shown {
+			if hidden && !beyond {
 				w.skipped++
 			}
 			continue
 		}
 
-		// Stat costs a syscall per entry; skip it when nothing will use it.
-		var info os.FileInfo
-		if w.opts.Stat || w.opts.Sizes || !w.opts.Since.IsZero() {
-			if info, err = entry.Info(); err != nil {
-				continue // vanished between ReadDir and Lstat
-			}
-		}
-		if !w.opts.Since.IsZero() && !entry.IsDir() && info.ModTime().Before(w.opts.Since) {
-			if !beyond {
-				w.skipped++
-			}
-			continue
-		}
-
-		slab = append(slab, Node{Name: name, Rel: rel, IsDir: entry.IsDir()})
+		slab = append(slab, Node{Name: name, Rel: rel, IsDir: entry.IsDir(), Special: special(entry)})
 		child := &slab[len(slab)-1]
 
 		if child.IsDir {

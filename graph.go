@@ -72,17 +72,6 @@ func (g *Graph) Dependents(id FileID) []FileID { return g.rev[g.revOff[id]:g.rev
 // UsedBy counts id's dependents that aren't tests.
 func (g *Graph) UsedBy(id FileID) int { return int(g.usedBy[id]) }
 
-// Tests are the test files that depend on id.
-func (g *Graph) Tests(id FileID) []FileID {
-	var out []FileID
-	for _, d := range g.Dependents(id) {
-		if g.Files[d].Test {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
 // Ranked returns the non-test files that other code uses, most used first.
 func (g *Graph) Ranked() []FileID {
 	var out []FileID

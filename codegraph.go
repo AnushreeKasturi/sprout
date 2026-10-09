@@ -205,66 +205,74 @@ func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) (string
 	}
 	return func(from, to FileID) (string, []string) {
 		fn, tn := nodes[from], nodes[to]
-		lang := langOf(fn.Name)
-		if lang != "go" {
+		if lang := langOf(fn.Name); lang != "go" {
 			specs, ok := specCache[from]
 			if !ok {
 				if src, err := os.ReadFile(t.FSPath(fn)); err == nil {
-					_, specs = scanDecls(lang, src)
-					if lang == "rs" {
-						specs = append(specs, rsCodePaths(src)...)
-					}
+					_, specs = scanDecls(lang, src, false)
 				}
 				specCache[from] = specs
 			}
-			for _, spec := range specs {
-				for _, target := range r.resolve(lang, fn.Rel, spec) {
-					if target == tn.Rel {
-						return "imports " + spec, nil
-					}
-				}
-			}
-			return "", nil
+			return importReason(r, lang, fn.Rel, tn.Rel, specs), nil
 		}
 		ff, tf := parseGo(from), parseGo(to)
 		if ff == nil || tf == nil {
 			return "", nil
 		}
-		declared := map[string]bool{}
-		for _, d := range tf.declares {
-			declared[d] = true
-		}
-		var names []string
-		if path.Dir(fn.Rel) == path.Dir(tn.Rel) && ff.pkg == tf.pkg {
-			for name := range ff.uses {
-				if declared[name] {
-					names = append(names, name)
-				}
-			}
-			return "uses " + someOf(names), names
-		}
-		for _, imp := range ff.imports {
-			if dir, ok := r.goPackageDir(imp.path); !ok || dir != path.Dir(tn.Rel) {
-				continue
-			}
-			pkg := imp.name
-			if pkg == "" {
-				pkg = tf.pkg
-			}
-			var shown []string
-			for sel := range ff.selectors {
-				if sel[0] == pkg && declared[sel[1]] {
-					names = append(names, sel[1])
-					shown = append(shown, pkg+"."+sel[1])
-				}
-			}
-			if len(names) == 0 {
-				return "imports " + imp.path, nil
-			}
-			return "uses " + someOf(shown), names
-		}
-		return "", nil
+		return goReason(r, fn.Rel, tn.Rel, ff, tf)
 	}
+}
+
+// importReason is the import in from that resolves to to, or "".
+func importReason(r resolver, lang, from, to string, specs []string) string {
+	for _, spec := range specs {
+		for _, target := range r.resolve(lang, from, spec) {
+			if target == to {
+				return "imports " + spec
+			}
+		}
+	}
+	return ""
+}
+
+// goReason is what Go file from uses from to: the names it declares, used
+// directly within one package or through an import, with the import path
+// when no name can be pinned down.
+func goReason(r resolver, from, to string, ff, tf *goFacts) (string, []string) {
+	declared := map[string]bool{}
+	for _, d := range tf.declares {
+		declared[d] = true
+	}
+	var names []string
+	if path.Dir(from) == path.Dir(to) && ff.pkg == tf.pkg {
+		for name := range ff.uses {
+			if declared[name] {
+				names = append(names, name)
+			}
+		}
+		return "uses " + someOf(names), names
+	}
+	for _, imp := range ff.imports {
+		if dir, ok := r.goPackageDir(imp.path); !ok || dir != path.Dir(to) {
+			continue
+		}
+		pkg := imp.name
+		if pkg == "" {
+			pkg = tf.pkg
+		}
+		var shown []string
+		for sel := range ff.selectors {
+			if sel[0] == pkg && declared[sel[1]] {
+				names = append(names, sel[1])
+				shown = append(shown, pkg+"."+sel[1])
+			}
+		}
+		if len(names) == 0 {
+			return "imports " + imp.path, nil
+		}
+		return "uses " + someOf(shown), names
+	}
+	return "", nil
 }
 
 // someOf lists up to three names, sorted, and counts the rest.
@@ -293,13 +301,7 @@ func parseSource(n *Node, fsPath string, wantSymbols bool, r resolver) fileFacts
 		return f
 	}
 	var specs []string
-	f.symbols, specs = scanDecls(lang, src)
-	if lang == "rs" {
-		specs = append(specs, rsCodePaths(src)...)
-	}
-	if !wantSymbols {
-		f.symbols = nil
-	}
+	f.symbols, specs = scanDecls(lang, src, wantSymbols)
 	for _, spec := range specs {
 		for _, target := range r.resolve(lang, n.Rel, spec) {
 			if target != n.Rel {
@@ -634,9 +636,14 @@ var importPatterns = map[string][]*regexp.Regexp{
 	"kt":   {regexp.MustCompile(`^\s*import\s+([\w.]+)`)},
 }
 
-func scanDecls(lang string, src []byte) (symbols, imports []string) {
+// scanDecls finds a non-Go file's declarations (with wantSymbols) and the
+// import specs it names.
+func scanDecls(lang string, src []byte, wantSymbols bool) (symbols, imports []string) {
 	for _, line := range strings.Split(string(src), "\n") {
 		for _, re := range declPatterns[lang] {
+			if !wantSymbols {
+				break // only the graph is wanted: skip the declaration patterns
+			}
 			if m := re.FindString(line); m != "" {
 				symbols = append(symbols, trimDecl(m))
 				break
@@ -656,7 +663,7 @@ func scanDecls(lang string, src []byte) (symbols, imports []string) {
 	case "py":
 		imports = pyImports(src)
 	case "rs":
-		imports = rsImports(src)
+		imports = rsSpecs(src)
 	}
 	return symbols, imports
 }

@@ -35,7 +35,7 @@ func TestGraphBuilder(t *testing.T) {
 	if g.UsedBy(lib) != 2 || g.UsedBy(app) != 1 || g.UsedBy(cli) != 0 {
 		t.Errorf("UsedBy lib/app/cli = %d/%d/%d, want 2/1/0 (tests don't count)", g.UsedBy(lib), g.UsedBy(app), g.UsedBy(cli))
 	}
-	if got := g.Tests(lib); !reflect.DeepEqual(got, []FileID{test}) {
+	if got := testsOf(g, lib); !reflect.DeepEqual(got, []FileID{test}) {
 		t.Errorf("Tests(lib) = %v, want [test]", got)
 	}
 	if got := g.Ranked(); !reflect.DeepEqual(got, []FileID{lib, app}) {
@@ -112,7 +112,7 @@ func TestGoTestRelationships(t *testing.T) {
 	})
 	tests := func(rel string) []string {
 		id, _ := g.ID(rel)
-		return rels(g, g.Tests(id))
+		return rels(g, testsOf(g, id))
 	}
 	if got := tests("calc/add.go"); !reflect.DeepEqual(got, []string{"calc/add_test.go"}) {
 		t.Errorf("Tests(add.go) = %v", got)
@@ -147,7 +147,7 @@ func TestOtherLanguageTestRelationships(t *testing.T) {
 		"src/pkg/core.py": {"tests/test_core.py"},
 	} {
 		id, _ := g.ID(rel)
-		if got := rels(g, g.Tests(id)); !reflect.DeepEqual(got, want) {
+		if got := rels(g, testsOf(g, id)); !reflect.DeepEqual(got, want) {
 			t.Errorf("Tests(%s) = %v, want %v", rel, got, want)
 		}
 	}
@@ -239,4 +239,15 @@ func TestGoTestHelpersAreCode(t *testing.T) {
 		}
 	}
 	wantDeps(t, g, "pkg/x/x_test.go", "pkg/x/x.go", "test/utils/helpers.go")
+}
+
+// testsOf is the test files that depend on id.
+func testsOf(g *Graph, id FileID) []FileID {
+	var out []FileID
+	for _, d := range g.Dependents(id) {
+		if g.Files[d].Test {
+			out = append(out, d)
+		}
+	}
+	return out
 }
