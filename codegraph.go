@@ -210,10 +210,7 @@ func explainer(t *Tree, nodes []*Node, r resolver) func(from, to FileID) (string
 			specs, ok := specCache[from]
 			if !ok {
 				if src, err := os.ReadFile(t.FSPath(fn)); err == nil {
-					_, specs = scanDecls(lang, src)
-					if lang == "rs" {
-						specs = append(specs, rsCodePaths(src)...)
-					}
+					_, specs = scanDecls(lang, src, false)
 				}
 				specCache[from] = specs
 			}
@@ -293,13 +290,7 @@ func parseSource(n *Node, fsPath string, wantSymbols bool, r resolver) fileFacts
 		return f
 	}
 	var specs []string
-	f.symbols, specs = scanDecls(lang, src)
-	if lang == "rs" {
-		specs = append(specs, rsCodePaths(src)...)
-	}
-	if !wantSymbols {
-		f.symbols = nil
-	}
+	f.symbols, specs = scanDecls(lang, src, wantSymbols)
 	for _, spec := range specs {
 		for _, target := range r.resolve(lang, n.Rel, spec) {
 			if target != n.Rel {
@@ -634,9 +625,14 @@ var importPatterns = map[string][]*regexp.Regexp{
 	"kt":   {regexp.MustCompile(`^\s*import\s+([\w.]+)`)},
 }
 
-func scanDecls(lang string, src []byte) (symbols, imports []string) {
+// scanDecls finds a non-Go file's declarations (with wantSymbols) and the
+// import specs it names.
+func scanDecls(lang string, src []byte, wantSymbols bool) (symbols, imports []string) {
 	for _, line := range strings.Split(string(src), "\n") {
 		for _, re := range declPatterns[lang] {
+			if !wantSymbols {
+				break // only the graph is wanted: skip the declaration patterns
+			}
 			if m := re.FindString(line); m != "" {
 				symbols = append(symbols, trimDecl(m))
 				break
@@ -656,7 +652,7 @@ func scanDecls(lang string, src []byte) (symbols, imports []string) {
 	case "py":
 		imports = pyImports(src)
 	case "rs":
-		imports = rsImports(src)
+		imports = rsSpecs(src)
 	}
 	return symbols, imports
 }

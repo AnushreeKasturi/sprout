@@ -18,7 +18,8 @@ mod tests {
     use super::super::up;
 }
 `)
-	got := rsImports(src)
+	code := stripRustComments(src)
+	got := rsImports(code, inlineModules(code))
 	want := []string{"parser", "crate::a::B", "crate::a::c::D", "crate::f", "super::*", "self::g", "self::g::H", "self::helper", "super::up"}
 	if !slices.Equal(got, want) {
 		t.Errorf("rsImports = %v\n want %v", got, want)

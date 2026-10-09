@@ -26,6 +26,7 @@ type Node struct {
 	Rel      string // slash-separated path relative to the root; Tree.FSPath gives the filesystem path
 	IsDir    bool
 	Missing  bool      // not on disk: inserted for a git deletion, or part of a --diff tree
+	Special  bool      // a symlink, pipe, socket or device rather than a regular file or directory
 	Size     int64     // files: bytes; directories: total below, with Options.Sizes
 	ModTime  time.Time // directories: newest file below
 	Children []*Node
@@ -197,7 +198,8 @@ func (w *walker) populate(node *Node, dir string, depth int) error {
 			continue
 		}
 
-		slab = append(slab, Node{Name: name, Rel: rel, IsDir: entry.IsDir()})
+		special := !entry.IsDir() && !entry.Type().IsRegular() // from ReadDir: no extra syscall
+		slab = append(slab, Node{Name: name, Rel: rel, IsDir: entry.IsDir(), Special: special})
 		child := &slab[len(slab)-1]
 
 		if child.IsDir {

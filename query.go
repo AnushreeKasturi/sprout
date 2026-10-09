@@ -71,7 +71,7 @@ func runQuery(cmd string, args []string, root string, stdout, stderr io.Writer) 
 	if root == "" {
 		root = projectRoot(abs)
 	}
-	g, err := projectGraph(root)
+	g, err := projectGraph(root, false)
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1

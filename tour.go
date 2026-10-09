@@ -110,8 +110,7 @@ func tourFiles(t *Tree, n *Node) map[string]bool {
 	prune = func(n *Node) {
 		kept := n.Children[:0]
 		for _, c := range n.Children {
-			info, err := os.Lstat(t.FSPath(c))
-			if err != nil || (!info.IsDir() && !info.Mode().IsRegular()) {
+			if c.Special {
 				t.Skipped++
 				continue
 			}
@@ -280,7 +279,7 @@ func writeTourSummary(b *strings.Builder, r tourResult) {
 	for _, p := range r.Projects {
 		fmt.Fprintf(b, "Ecosystem: %s (%s; %s)\n", p.Language, p.Manifest, p.PackageManager)
 	}
-	if langs := topLanguages(r.Languages, r.Files, 6); langs != "" {
+	if langs := topLanguages(r.Languages, 6); langs != "" {
 		fmt.Fprintf(b, "Languages: %s\n", langs)
 	}
 }
