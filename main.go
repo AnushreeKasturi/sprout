@@ -23,6 +23,8 @@ Usage:
                           or uncommitted changes; --staged, --diff main...HEAD, --commit REV
   sprout context FILE     what to know before editing FILE: what it declares, the signatures it
                           uses from each dependency, its users and tests; --budget N tokens
+  sprout tour [path]      guided onboarding: purpose, layout, reading order and next commands;
+                          --json for scripts, --limit N for more recommendations (default 8)
                           (to map a folder named like a command, e.g. deps, write ./deps)
 
 Views:
@@ -177,6 +179,9 @@ func run(args []string, out, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "context" {
 		return runContext(args[1:], "", stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "tour" {
+		return runTour(args[1:], stdout, stderr)
 	}
 
 	f, path, err := parseFlags(args, stderr)

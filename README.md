@@ -29,6 +29,7 @@ read projects:
 ```bash
 sprout --ai | pbcopy                     # project context for any chat, ~2k tokens
 sprout --entry                           # where to start reading
+sprout tour                              # purpose, layout, reading plan and next commands
 sprout impact --diff main...HEAD         # what this branch could break, and the tests to run
 sprout --diff main...HEAD -L 2           # what this branch touched, as a tree
 sprout github.com/owner/repo --ai        # the same, for a repo you haven't cloned
@@ -115,6 +116,59 @@ Reading order for bubbletea
   4. tea.go                      used by 25 files
   5. mouse.go                    used by 7 files
 ```
+
+## `tour`: get oriented in one command
+
+`--entry` gives you a reading list. `sprout tour` adds the README's opening
+prose, detected ecosystems and languages, a directory overview, reasons for
+what to read, and commands to try next:
+
+```bash
+sprout tour                     # current directory
+sprout tour ./project --limit 12 # more reading steps and top-level directories
+sprout tour ./project --json     # deterministic, schemaVersion 1
+```
+
+To reproduce a small example from this source checkout:
+
+```bash
+go run . tour testdata/tour
+```
+
+The reading section is:
+
+```text
+Start here:
+  1. README.md — project overview (README)
+  2. cmd/app/main.go — likely entry point (filename convention)
+  3. internal/greeting/greeting.go — used by 1 file
+```
+
+The full output also explains that this example is a Go project, shows its
+`cmd/`, `docs/` and `internal/` layout, and suggests `sprout context
+'./cmd/app/main.go'`. Run next commands **from the directory you toured**.
+They are suggestions, never executed by the tour. On Windows they use
+PowerShell quoting; elsewhere they use POSIX shell quoting.
+
+Tour works offline, without an account, LLM, or language runtime. It accepts
+local directories and respects Git ignores (when Git is available), built-in
+fallback exclusions, and `.sproutignore`. Like the graph subcommands, it does
+not load tree-view config. Symlinks and special files are skipped;
+`.sproutignore` itself must be a regular file. Missing READMEs, manifests or
+recognized source languages produce an explicit fallback instead of invented
+architecture. Ecosystems come from root manifests; framework detection is not
+claimed. Entry filenames and static dependencies are evidence, not proof of
+runtime behavior.
+
+`--limit` defaults to 8, accepts 1–50, and bounds the reading list and top-level
+directories. Omitted counts are shown. This limits output, not the walk or
+graph build. Test files, examples and vendored code are not ranked; the existing
+graph caps still apply. Existing `--entry` and `--ai` output remain available.
+To map a directory named `tour`, use `sprout ./tour`.
+
+The [tour JSON contract](docs/tour-json.md) documents fields and limitations.
+The [implementation plan](docs/implementation-plan.md) and
+[architecture decision](docs/adr/0001-guided-tour.md) describe later phases.
 
 ## `deps` and `dependents`: what a file touches
 

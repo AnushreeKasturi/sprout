@@ -91,4 +91,10 @@ COMP_WORDS=("$@"); COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 )); _sprout; printf '%s\
 	if got := complete("sprout", "context", "ma"); got != "main.go\n" {
 		t.Errorf("sprout context ma<TAB> = %q", got)
 	}
+	if got := complete("sprout", "tour", "--l"); got != "--limit\n" {
+		t.Errorf("sprout tour --l<TAB> = %q", got)
+	}
+	if got := complete("sprout", "tour", "--limit", "ma"); strings.Contains(got, "main.go") {
+		t.Errorf("tour --limit must not complete filenames: %q", got)
+	}
 }

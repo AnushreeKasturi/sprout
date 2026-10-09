@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -293,20 +294,26 @@ func readmeSummary(root string) string {
 			continue
 		}
 		defer f.Close()
-		sc := bufio.NewScanner(f)
-		for i := 0; sc.Scan() && i < 40; i++ {
-			line := strings.TrimSpace(sc.Text())
-			if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") ||
-				strings.HasPrefix(line, "[!") || strings.HasPrefix(line, "<") || strings.HasPrefix(line, "=") {
-				continue
-			}
-			line = strings.TrimLeft(line, "-*> ")
-			if len(line) > 200 {
-				line = line[:200] + "…"
-			}
-			return line
+		return readmeProse(f)
+	}
+	return ""
+}
+
+// readmeProse is shared by the map and tour; it reads at most the opening
+// 40 lines and returns the same short excerpt used by --ai.
+func readmeProse(r io.Reader) string {
+	sc := bufio.NewScanner(r)
+	for i := 0; i < 40 && sc.Scan(); i++ {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") ||
+			strings.HasPrefix(line, "[!") || strings.HasPrefix(line, "<") || strings.HasPrefix(line, "=") {
+			continue
 		}
-		return ""
+		line = strings.TrimLeft(line, "-*> ")
+		if len(line) > 200 {
+			line = line[:200] + "…"
+		}
+		return line
 	}
 	return ""
 }
