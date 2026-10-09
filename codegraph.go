@@ -76,6 +76,20 @@ type fileFacts struct {
 	goFacts *goFacts // Go files; resolved once every file is parsed
 }
 
+// jsConfigPath maps a config path relative to root to a readable file, or "".
+// Inherited configs may live outside the root (a monorepo's base tsconfig),
+// but a FIFO, device or oversized file is never read.
+func jsConfigPath(root string) func(string) string {
+	return func(rel string) string {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		info, err := os.Stat(p)
+		if err != nil || !info.Mode().IsRegular() || info.Size() > maxSourceSize {
+			return ""
+		}
+		return p
+	}
+}
+
 // buildGraph analyzes the source files in t. With tests, test files join
 // the graph too, so each file's tests can be found; --entry and --ai don't
 // need them and skip reading them, which on Go-heavy repos is a third of
@@ -121,16 +135,7 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 	r := resolver{exists: exists, goModules: goModules(t, goMods), javaIndex: javaIndex(nodes), pyRoots: pyRoots}
 	r.rs = loadRSProject(cargos, func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) }, exists)
 	if len(jsConfigs)+len(jsManifests) > 0 {
-		r.js = loadJSProject(jsConfigs, jsManifests, func(rel string) string {
-			// Inherited configs may live outside the root (a monorepo's base
-			// tsconfig), but never read a FIFO, device or oversized file.
-			p := filepath.Join(root, filepath.FromSlash(rel))
-			info, err := os.Stat(p)
-			if err != nil || !info.Mode().IsRegular() || info.Size() > maxSourceSize {
-				return ""
-			}
-			return p
-		})
+		r.js = loadJSProject(jsConfigs, jsManifests, jsConfigPath(root))
 	}
 
 	// Parse in parallel: reading and parsing dominate on large repos.

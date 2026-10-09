@@ -165,23 +165,31 @@ func parseFlags(args []string, stderr io.Writer) (*flags, string, error) {
 	return f, path, err
 }
 
+// runSubcommand runs a graph subcommand, or reports that name isn't one.
+func runSubcommand(name string, args []string, stdout, stderr io.Writer) (int, bool) {
+	switch name {
+	case "deps", "dependents":
+		return runQuery(name, args, "", stdout, stderr), true
+	case "impact":
+		return runImpact(args, "", stdout, stderr), true
+	case "context":
+		return runContext(args, "", stdout, stderr), true
+	case "tour":
+		return runTour(args, stdout, stderr), true
+	}
+	return 0, false
+}
+
 func run(args []string, out, stderr io.Writer) int {
 	// One write per line made printing a 30k-file tree take seconds.
 	buf := bufio.NewWriterSize(out, 64<<10)
 	defer buf.Flush()
 	var stdout io.Writer = buf
 
-	if len(args) > 0 && (args[0] == "deps" || args[0] == "dependents") {
-		return runQuery(args[0], args[1:], "", stdout, stderr)
-	}
-	if len(args) > 0 && args[0] == "impact" {
-		return runImpact(args[1:], "", stdout, stderr)
-	}
-	if len(args) > 0 && args[0] == "context" {
-		return runContext(args[1:], "", stdout, stderr)
-	}
-	if len(args) > 0 && args[0] == "tour" {
-		return runTour(args[1:], stdout, stderr)
+	if len(args) > 0 {
+		if code, ok := runSubcommand(args[0], args[1:], stdout, stderr); ok {
+			return code
+		}
 	}
 
 	f, path, err := parseFlags(args, stderr)
