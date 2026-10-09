@@ -77,11 +77,28 @@ type fileFacts struct {
 }
 
 // jsConfigPath maps a config path relative to root to a readable file, or "".
-// Inherited configs may live outside the root (a monorepo's base tsconfig),
-// but a FIFO, device or oversized file is never read.
+// Inherited configs may sit above root, as a monorepo's base tsconfig does,
+// but not outside the enclosing git repository (root itself outside one),
+// even through symlinks: a cloned project must not choose files to read
+// from elsewhere on the machine. A FIFO, device or oversized file is never read.
 func jsConfigPath(root string) func(string) string {
+	real, err := resolveRoot(root)
+	if err != nil {
+		return func(string) string { return "" }
+	}
+	top := gitTop(real)
+	if top == "" {
+		top = real
+	}
 	return func(rel string) string {
-		p := filepath.Join(root, filepath.FromSlash(rel))
+		within, err := filepath.Rel(top, filepath.Join(real, filepath.FromSlash(rel)))
+		if err != nil {
+			return ""
+		}
+		p, err := confine(top, within)
+		if err != nil {
+			return ""
+		}
 		info, err := os.Stat(p)
 		if err != nil || !info.Mode().IsRegular() || info.Size() > maxSourceSize {
 			return ""

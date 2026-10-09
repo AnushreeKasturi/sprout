@@ -253,25 +253,41 @@ func TestTourRespectsGitIgnore(t *testing.T) {
 	}
 }
 
-// A monorepo app's tsconfig often extends a base config above the root.
-func TestGraphConfigInheritsFromParent(t *testing.T) {
+// A monorepo app's tsconfig often extends a base config above the app. That
+// works inside the repository, but a project can't reach files past it.
+func TestGraphConfigInheritance(t *testing.T) {
 	parent := t.TempDir()
 	dir := filepath.Join(parent, "project")
 	write(t, parent, "base.json", `{"compilerOptions":{"paths":{"alias":["lib.ts"]}}}`)
-	write(t, dir, "tsconfig.json", `{"extends":"../base.json","compilerOptions":{"baseUrl":"."}}`)
 	write(t, dir, "main.ts", `import { value } from 'alias';`)
 	write(t, dir, "lib.ts", `export const value = 1;`)
-	tree, err := BuildTree(dir, Options{MaxDepth: -1, Stat: true})
-	if err != nil {
+	graphDeps := func(extends string) []string {
+		write(t, dir, "tsconfig.json", `{"extends":"`+extends+`","compilerOptions":{"baseUrl":"."}}`)
+		tree, err := BuildTree(dir, Options{MaxDepth: -1, Stat: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return deps(t, buildGraph(dir, tree, false, false), "main.ts")
+	}
+	symlinks := os.Symlink(filepath.Join(parent, "base.json"), filepath.Join(dir, "linked.json")) == nil
+
+	// No repository: the project folder is the limit, links included.
+	if got := graphDeps("../base.json"); len(got) != 0 {
+		t.Fatalf("config outside the folder was read: %v", got)
+	}
+	if got := graphDeps("./linked.json"); symlinks && len(got) != 0 {
+		t.Fatalf("linked config outside the folder was read: %v", got)
+	}
+	if got := graphDeps("../"); len(got) != 0 {
+		t.Fatalf("a directory was read as config: %v", got)
+	}
+
+	// The folder is an app inside a repository: its base config is read.
+	if err := os.Mkdir(filepath.Join(parent, ".git"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := deps(t, buildGraph(dir, tree, false, false), "main.ts"); !reflect.DeepEqual(got, []string{"lib.ts"}) {
+	if got := graphDeps("../base.json"); !reflect.DeepEqual(got, []string{"lib.ts"}) {
 		t.Fatalf("inherited paths ignored: %v", got)
-	}
-	// A directory (or FIFO) named as the base config is never read.
-	write(t, dir, "tsconfig.json", `{"extends":"../"}`)
-	if got := deps(t, buildGraph(dir, tree, false, false), "main.ts"); len(got) != 0 {
-		t.Fatalf("non-file config: %v", got)
 	}
 }
 
