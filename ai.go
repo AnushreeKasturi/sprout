@@ -333,17 +333,10 @@ func readmeProse(r io.Reader) string {
 		lines = append(lines, strings.TrimSpace(sc.Text()))
 	}
 	for i, line := range lines {
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, "!") ||
-			strings.HasPrefix(line, "[!") || strings.HasPrefix(line, "[<") || strings.HasPrefix(line, "<") || strings.HasPrefix(line, "=") {
-			continue
-		}
-		if i+1 < len(lines) && setextUnderline(lines[i+1]) {
+		if notProse(line) || i+1 < len(lines) && setextUnderline(lines[i+1]) {
 			continue // "Title" over "=====" is a heading too
 		}
-		line = mdLink.ReplaceAllString(line, "$1")
-		line = mdEscape.ReplaceAllString(mdEmphasis.Replace(line), "$1")
-		line = strings.Trim(html.UnescapeString(line), "-*_> \u2002\u2003")
-		if line == "" {
+		if line = plainText(line); line == "" {
 			continue
 		}
 		if r := []rune(line); len(r) > 200 {
@@ -352,6 +345,26 @@ func readmeProse(r io.Reader) string {
 		return line
 	}
 	return ""
+}
+
+// notProse reports headings, badges, images and HTML.
+func notProse(line string) bool {
+	if line == "" {
+		return true
+	}
+	for _, p := range []string{"#", "!", "[!", "[<", "<", "="} {
+		if strings.HasPrefix(line, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// plainText strips Markdown links, emphasis, escapes and HTML entities.
+func plainText(line string) string {
+	line = mdLink.ReplaceAllString(line, "$1")
+	line = mdEscape.ReplaceAllString(mdEmphasis.Replace(line), "$1")
+	return strings.Trim(html.UnescapeString(line), "-*_> \u2002\u2003")
 }
 
 func setextUnderline(s string) bool {
