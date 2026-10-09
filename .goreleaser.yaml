@@ -90,5 +90,8 @@ nfpms:
         dst: /usr/share/man/man1/sprout.1
 
 release:
+  # Re-running a release (e.g. after fixing the tap token) replaces its files
+  # instead of failing on the ones the first run uploaded.
+  replace_existing_artifacts: true
   footer: |
     **Install:** `brew install sprout-devlabs/tap/sprout` · `scoop bucket add sprout https://github.com/Sprout-DevLabs/scoop-bucket; scoop install sprout` · `.deb`/`.rpm`/`.apk` below · `go install github.com/Sprout-DevLabs/sprout@{{ .Tag }}` · or `curl -fsSL https://sprout-devlabs.github.io/sprout-web/install.sh | sh`
