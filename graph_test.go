@@ -251,3 +251,20 @@ func testsOf(g *Graph, id FileID) []FileID {
 	}
 	return out
 }
+
+// A test fixture that copies the project's go.mod mustn't take over its
+// imports (cli/cli keeps one under .github/codeql/tests).
+func TestDuplicateGoModulePath(t *testing.T) {
+	fixture := ".github/codeql/tests/case/"
+	g := graphFor(t, map[string]string{
+		"go.mod":                 "module example.com/app\n",
+		"pkg/io/io.go":           "package io\nfunc New() {}\n",
+		"cmd/main.go":            "package main\nimport \"example.com/app/pkg/io\"\nfunc main() { io.New() }\n",
+		fixture + "go.mod":       "module example.com/app\n",
+		fixture + "pkg/io/io.go": "package io\nfunc New() {}\n",
+		fixture + "cmd/main.go":  "package main\nimport \"example.com/app/pkg/io\"\nfunc main() { io.New() }\n",
+	})
+	if got := deps(t, g, "cmd/main.go"); !reflect.DeepEqual(got, []string{"pkg/io/io.go"}) {
+		t.Fatalf("the project's own import resolved to %v", got)
+	}
+}
