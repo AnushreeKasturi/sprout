@@ -177,14 +177,16 @@ tooling. To map a folder named `deps` or `dependents`, write `./deps`.
 ## `impact`: what a change could break
 
 `sprout impact` traces a change through the graph: every file that depends on
-it, directly or through others, and every test that reaches it, with a ready
-`go test` command for Go. With no arguments it uses your uncommitted changes;
+it, directly or through others, and every test that reaches it, with a command
+to run them: `go test` for Go, `pytest` for Python, and `vitest`, `jest`, `ava`
+or `mocha` for TypeScript and JavaScript when the project uses one. With no
+arguments it uses your uncommitted changes;
 `--staged`, `--diff main...HEAD` and `--commit HEAD` take them from git, or name
 the files. `--all` lists every affected file and `--json` is for scripts and CI.
 
 ```
 $ sprout impact pkg/controller/garbagecollector/graph_builder.go   # in kubernetes
-Impact of 1 changed file (files)
+Impact of 1 file
 
   pkg/controller/garbagecollector/graph_builder.go
 
