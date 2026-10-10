@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -35,6 +36,34 @@ type queryResult struct {
 
 // runQuery runs deps or dependents. root is the project root; "" finds it
 // from the file (the nearest .git above it).
+// fileArg resolves the FILE argument of deps, dependents and context to an
+// absolute path, or says what's wrong and returns the exit code: 2 for no
+// file or a folder, 1 for a file that isn't there. parseArgs gives "." when
+// there's no argument, so args tells that apart from a "." typed.
+func fileArg(cmd, arg string, args []string, stderr io.Writer) (string, int) {
+	if arg == "." && !slices.Contains(args, ".") {
+		fmt.Fprintf(stderr, "sprout: %s needs a file, e.g. sprout %s main.go\n", cmd, cmd)
+		return "", 2
+	}
+	abs, err := filepath.Abs(arg)
+	var info os.FileInfo
+	if err == nil {
+		info, err = os.Stat(abs)
+	}
+	switch {
+	case os.IsNotExist(err):
+		fmt.Fprintf(stderr, "sprout: %s: no such file\n", arg)
+		return "", 1
+	case err != nil:
+		fmt.Fprintln(stderr, "sprout:", err)
+		return "", 1
+	case info.IsDir():
+		fmt.Fprintf(stderr, "sprout: %s needs a file, and %s is a folder (did you mean `sprout %s --entry`?)\n", cmd, arg, arg)
+		return "", 2
+	}
+	return abs, 0
+}
+
 func runQuery(cmd string, args []string, root string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sprout "+cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -51,22 +80,9 @@ func runQuery(cmd string, args []string, root string, stdout, stderr io.Writer) 
 		fmt.Fprintf(stderr, "Run 'sprout %s --help' for usage.\n", cmd)
 		return 2
 	}
-	abs, err := filepath.Abs(arg)
-	var info os.FileInfo
-	if err == nil {
-		info, err = os.Stat(abs)
-	}
-	if os.IsNotExist(err) {
-		fmt.Fprintf(stderr, "sprout: %s: no such file\n", arg)
-		return 1
-	}
-	if err != nil {
-		fmt.Fprintln(stderr, "sprout:", err)
-		return 1
-	}
-	if info.IsDir() {
-		fmt.Fprintf(stderr, "sprout: %s needs a file, and %s is a folder (did you mean `sprout %s --entry`?)\n", cmd, arg, arg)
-		return 2
+	abs, code := fileArg(cmd, arg, args, stderr)
+	if code != 0 {
+		return code
 	}
 	if root == "" {
 		root = projectRoot(abs)

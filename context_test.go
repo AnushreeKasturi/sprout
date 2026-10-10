@@ -84,6 +84,9 @@ func TestUsedSymbols(t *testing.T) {
 func TestContextErrors(t *testing.T) {
 	dir := queryRepo(t)
 	chdir(t, dir)
+	if _, errOut, code := runCLI(t, "context"); code != 2 || errOut != "sprout: context needs a file, e.g. sprout context main.go\n" {
+		t.Errorf("no argument: exit %d, %q", code, errOut)
+	}
 	for _, arg := range []string{".", "a", filepath.Join(dir, "a")} {
 		out, errOut, code := runCLI(t, "context", arg)
 		want := "sprout: context needs a file, and " + arg + " is a folder (did you mean `sprout " + arg + " --entry`?)\n"

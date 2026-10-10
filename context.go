@@ -35,18 +35,9 @@ func runContext(args []string, root string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "sprout: --budget must be at least 1")
 		return 2
 	}
-	abs, err := filepath.Abs(arg)
-	var info os.FileInfo
-	if err == nil {
-		info, err = os.Stat(abs)
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "sprout: %s: no such file\n", arg)
-		return 1
-	}
-	if info.IsDir() {
-		fmt.Fprintf(stderr, "sprout: context needs a file, and %s is a folder (did you mean `sprout %s --entry`?)\n", arg, arg)
-		return 2
+	abs, code := fileArg("context", arg, args, stderr)
+	if code != 0 {
+		return code
 	}
 	if root == "" {
 		root = projectRoot(abs)
