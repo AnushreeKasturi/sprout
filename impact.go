@@ -60,31 +60,16 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Run 'sprout impact --help' for usage.")
 		return 2
 	}
-	modes := 0
-	for _, on := range []bool{*staged, *diff != "", *commit != "", len(files) > 0} {
-		if on {
-			modes++
-		}
-	}
-	if modes > 1 {
+	if count(*staged, *diff != "", *commit != "", len(files) > 0) > 1 {
 		fmt.Fprintln(stderr, "sprout: impact takes files, --staged, --diff or --commit, one at a time")
 		return 2
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(stderr, "sprout:", err)
-		return 1
-	}
-	start := cwd
-	if len(files) > 0 {
-		if start, err = filepath.Abs(files[0]); err != nil {
+	if root == "" {
+		if root, err = impactRoot(files); err != nil {
 			fmt.Fprintln(stderr, "sprout:", err)
 			return 1
 		}
-	}
-	if root == "" {
-		root = projectRoot(start)
 	}
 
 	// The changed paths, relative to root.
@@ -119,6 +104,30 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	}
 	printImpact(stdout, g, res, *all)
 	return 0
+}
+
+// count is how many of on are true.
+func count(on ...bool) int {
+	n := 0
+	for _, b := range on {
+		if b {
+			n++
+		}
+	}
+	return n
+}
+
+// impactRoot is the project the change belongs to: around the first file
+// named, else around the current folder.
+func impactRoot(files []string) (string, error) {
+	start, err := os.Getwd()
+	if err == nil && len(files) > 0 {
+		start, err = filepath.Abs(files[0])
+	}
+	if err != nil {
+		return "", err
+	}
+	return projectRoot(start), nil
 }
 
 // parseFiles parses fs from args, with flags before, between or after any

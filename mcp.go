@@ -264,8 +264,12 @@ func serveMCP(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "sprout mcp: %s isn't a project; tools will refuse it until the client names its open folder or you pass a path: sprout mcp /path/to/project\n", root)
 	}
 
-	// Lines are read on their own goroutine so tool calls can wait, briefly,
-	// for the client to say which folder is open.
+	return s.run(readLines(in))
+}
+
+// readLines sends each trimmed line of in, on its own goroutine, so tool
+// calls can wait briefly for the client to say which folder is open.
+func readLines(in io.Reader) <-chan []byte {
 	lines := make(chan []byte)
 	go func() {
 		sc := bufio.NewScanner(in)
@@ -275,6 +279,11 @@ func serveMCP(args []string, in io.Reader, out, errOut io.Writer) int {
 		}
 		close(lines)
 	}()
+	return lines
+}
+
+// run answers the client until its input ends, and returns an exit code.
+func (s *mcpConn) run(lines <-chan []byte) int {
 	var timeout <-chan time.Time
 	for {
 		select {
