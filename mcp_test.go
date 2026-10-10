@@ -284,3 +284,44 @@ func TestMCPPrintConfig(t *testing.T) {
 		t.Errorf("unknown client: exit %d", code)
 	}
 }
+
+// A tool call that arrives before the client says which folder is open
+// waits for the answer, instead of running on the wrong folder.
+func TestMCPCallWaitsForRoots(t *testing.T) {
+	started, open := t.TempDir(), t.TempDir()
+	write(t, open, "only_in_open.txt", "x")
+	chdir(t, started)
+	uri := "file://" + filepath.ToSlash(open)
+	if !strings.HasPrefix(uri, "file:///") {
+		uri = "file:///" + filepath.ToSlash(open)
+	}
+	out := mcpRun(t, nil,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"roots":{}}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tree","arguments":{}}}`, // before the answer
+		`{"jsonrpc":"2.0","id":"roots-1","result":{"roots":[{"uri":"`+uri+`"}]}}`,
+	)
+	if !strings.Contains(out, "only_in_open.txt") {
+		t.Fatalf("the early call didn't wait for the open folder:\n%s", out)
+	}
+}
+
+// Notes over MCP name the tool's arguments, not the CLI's flags.
+func TestMCPArgumentNames(t *testing.T) {
+	dir := impactRepo(t)
+	resps := mcpSession(t, dir, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"project_map","arguments":{"budget":5}}}`)
+	if text, _ := toolText(t, resps[1]); strings.Contains(text, "--budget") || !strings.Contains(text, "over budget 5") {
+		t.Errorf("CLI flag names reached the agent:\n%s", text)
+	}
+}
+
+// --print-config names the sprout that's running, not another one on PATH.
+func TestMCPPrintConfigRunningBinary(t *testing.T) {
+	var out, errOut bytes.Buffer
+	serveMCP([]string{"--print-config", "claude-desktop"}, strings.NewReader(""), &out, &errOut)
+	self, _ := os.Executable()
+	self, _ = filepath.EvalSymlinks(self)
+	if !strings.Contains(out.String(), strings.ReplaceAll(self, `\`, `\\`)) {
+		t.Errorf("config doesn't name the running binary %s:\n%s", self, out.String())
+	}
+}
