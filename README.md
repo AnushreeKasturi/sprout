@@ -1,9 +1,10 @@
 # 🌱 Sprout
 
-**Map your codebase, for you and your AI agent.**
+**A map of your codebase for you and your AI agent: where to start reading, what a change could break, and which tests to run.**
 
 [![CI](https://github.com/Sprout-DevLabs/sprout/actions/workflows/go.yml/badge.svg)](https://github.com/Sprout-DevLabs/sprout/actions/workflows/go.yml)
 [![Release](https://img.shields.io/github/v/release/Sprout-DevLabs/sprout)](https://github.com/Sprout-DevLabs/sprout/releases)
+[![GitHub stars](https://img.shields.io/github/stars/Sprout-DevLabs/sprout?style=flat&logo=github)](https://github.com/Sprout-DevLabs/sprout/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![DeepSource](https://app.deepsource.com/gh/Sprout-DevLabs/sprout.svg/?label=active+issues&show_trend=true)](https://app.deepsource.com/gh/Sprout-DevLabs/sprout/)
 [![Go version](https://img.shields.io/github/go-mod/go-version/Sprout-DevLabs/sprout)](go.mod)
@@ -15,27 +16,19 @@
   <img src=".github/assets/sprout-demo.gif" width="800" alt="Sprout demo: sprout maps a repository as a tree, lists where to start reading with sprout --entry, and condenses the project into a 1,484-token map for AI agents with sprout --ai.">
 </p>
 
-Sprout is a fast, single-binary directory explorer built around how developers
-read projects:
-
-- It respects `.gitignore` and counts what it hides.
-- It shows git changes, commit hotspots and sizes in the tree, and renders a
-  pull request as a tree.
-- It suggests where to start reading.
-- It gives LLMs a compact project map that includes function and type
-  signatures.
-- It runs as an MCP server, so coding agents can use it directly.
-
 ```bash
-sprout --ai | pbcopy                     # project context for any chat, ~2k tokens
-sprout --entry                           # where to start reading
-sprout tour                              # purpose, layout, reading plan and next commands
-sprout impact --diff main...HEAD         # what this branch could break, and the tests to run
-sprout --diff main...HEAD -L 2           # what this branch touched, as a tree
-sprout github.com/owner/repo --ai        # the same, for a repo you haven't cloned
+sprout tour                           # what this project is, how it's laid out, what to read first
+sprout impact                         # what your uncommitted changes could break, and the tests to run
+claude mcp add sprout -- sprout mcp   # give Claude Code the same map (other agents: below)
 ```
 
-📖 **Docs:** https://sprout-devlabs.github.io/sprout-web/docs.html
+**Try it on any GitHub repo, no clone needed:** `sprout tour github.com/charmbracelet/bubbletea`.
+
+**No install, with Go:** `go run github.com/Sprout-DevLabs/sprout@latest tour`.
+
+One small binary, standard library only. Reads Go, TypeScript/JavaScript,
+Python, Rust, Java and Kotlin. 📖 [Docs](https://sprout-devlabs.github.io/sprout-web/docs/)
+· ⭐ If Sprout saves you or your agent some digging, [a star](https://github.com/Sprout-DevLabs/sprout/stargazers) helps others find it.
 
 ## Install
 
@@ -54,68 +47,69 @@ other installs, add completions yourself:
 sprout --completion zsh > "${fpath[1]}/_sprout"       # or bash, fish, powershell
 ```
 
-## A tree that knows what matters
+## With your coding agent
 
-Inside a git repo, **`.gitignore` decides** what's shown. Sprout asks git
-itself, so nested ignores, negations and global excludes all work. Outside git,
-`node_modules`, `.venv`, `dist` and similar folders are hidden instead. The last
-line always says how much was left out.
+`sprout mcp` is a [Model Context Protocol](https://modelcontextprotocol.io)
+server, so agents get the map, the graph and impact as tools instead of
+spending their context on `ls -R` and `grep`.
 
-| Flag | |
+**Claude Code**, in your project:
+
+```bash
+claude mcp add sprout -- sprout mcp
+```
+
+**Cursor**: `.cursor/mcp.json` in your project, or `~/.cursor/mcp.json` for all of them:
+
+```json
+{ "mcpServers": { "sprout": { "command": "sprout", "args": ["mcp", "${workspaceFolder}"] } } }
+```
+
+**VS Code**: `.vscode/mcp.json` in your project:
+
+```json
+{ "servers": { "sprout": { "type": "stdio", "command": "sprout", "args": ["mcp", "${workspaceFolder}"] } } }
+```
+
+Or let Sprout print it with your `sprout`'s full path filled in:
+`sprout mcp --print-config cursor` (or `vscode`, `claude-desktop`, `claude-code`).
+
+**Claude Desktop**: Settings → Developer → Edit Config, which opens
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or
+`%APPDATA%\Claude\claude_desktop_config.json` on Windows. Desktop apps don't
+know your project, and often can't find Homebrew's binaries on their own, so
+give both in full (`which sprout` prints the first):
+
+```json
+{ "mcpServers": { "sprout": { "command": "/opt/homebrew/bin/sprout", "args": ["mcp", "/path/to/your/project"] } } }
+```
+
+| Tool | Does |
 |---|---|
-| `-L, --depth N` | Limit depth |
-| `--ignore PATTERNS` | Hide matches, in gitignore syntax: `'*.log'`, `'src/gen/'`, `'docs/**/*.png'`, `'!keep.log'` |
-| `--only PATTERNS` | Show only matching files and prune emptied folders: `'*.go'`, `'web/src/**/*.tsx'` |
-| `--changed-within AGE` | Only files modified recently: `30m`, `12h`, `7d`, `2w` |
-| `--max-files N` | At most N files per folder, then `… 37 more files` |
-| `--size` | File sizes and **true** folder totals, even past `--depth` |
-| `--sort name\|size\|time` | Largest or newest first. `-r` reverses; `--dirs-first` lists folders first; `--si` uses powers of 1000 |
-| `-a, --all` | Show hidden and ignored entries |
-| `--hyperlink` | Make names clickable in terminals that support links |
+| `project_map` | The `--ai` map, key files included. Agents are told to call it first |
+| `reading_order` | The `--entry` list |
+| `tree` | A tree of any folder, with optional git status or churn |
+| `diff_tree` | `--diff` for a revision like `main...HEAD` |
+| `dependents` | What depends on a file, and why |
+| `deps` | What a file depends on, and why |
+| `impact` | What a change could break, and the tests to run: given files, uncommitted, staged, a range or a commit |
+| `context` | What to know before editing a file: signatures it uses, its users, its tests |
 
-A `.sproutignore` in the project applies the same patterns on every run.
+Agents are told when each tool beats searching by hand. The server is read-only. Paths and file arguments are confined to the project,
+symlinks included, git arguments can't carry options, and it never clones.
 
-## `--ai`: context for LLMs
+**If it doesn't work**
 
-A structure-first map of the project, sized to a token budget (`--budget`,
-default 2000). It contains:
-
-- the README's opening line
-- the detected stack and languages
-- entry points and the config/CI files
-- uncommitted work and the 90-day hotspots
-- the layout, opened breadth-first
-- the **key files**: the files the rest of the code uses most, with their
-  function and type signatures
-
-It never includes file bodies. Here's the key-files section for
-[sindresorhus/ky](https://github.com/sindresorhus/ky):
-
-```
-## key files (most used first)
-source/types/options.ts (used by 12): export type SearchParamsInit; export type SearchParamsOption; …
-source/core/constants.ts (used by 8): export const supportsRequestStreams; export const supportsAbortController; …
-source/errors/KyError.ts (used by 7): export class KyError extends Error
-source/types/request.ts (used by 5): export type KyRequest<T = unknown>
-```
-
-Signatures come from Go's own parser. For TypeScript/JavaScript, Python,
-Rust, Java and Kotlin, Sprout reads declarations and imports line by line.
-Files are ranked by how many other files import or reference them, and tests
-don't count.
-
-## `--entry`: where to start reading
-
-```
-$ sprout github.com/charmbracelet/bubbletea --entry
-Reading order for bubbletea
-
-  1. README.md                   what the project is
-  2. tutorials/basics/main.go    entry point
-  3. tutorials/commands/main.go  entry point
-  4. tea.go                      used by 25 files
-  5. mouse.go                    used by 7 files
-```
+- **No sprout tools show up:** restart the client after editing its config.
+  Run `sprout mcp` in a terminal; it should print `MCP server on stdio, root …`
+  and wait. "command not found" in the client's MCP log means it can't see
+  your `PATH`: use the full path from `which sprout`.
+- **The map is of the wrong folder:** the server serves the folder you pass
+  it, else the one your client says is open (MCP roots), else the one it
+  started in. Started in `/` or your home folder, it refuses rather than map
+  everything; pass the project explicitly, as in the examples above.
+- **Stale results:** there are none to worry about. Every call reads the
+  disk again, so files your agent just wrote are in the next answer.
 
 ## `tour`: get oriented in one command
 
@@ -140,39 +134,11 @@ Next (run from the directory you toured; POSIX shell or PowerShell):
 
 `--limit N` (default 8, up to 50) sets how many reading steps and directories
 are shown; anything left out is counted. `--json` prints a stable,
-versioned object, documented in [docs/tour-json.md](docs/tour-json.md). Tour is
-offline and read-only: it respects ignore rules, skips symlinks, and never runs
-the commands it suggests. To map a folder named `tour`, write `sprout ./tour`.
-
-## `deps` and `dependents`: what a file touches
-
-`sprout deps FILE` lists what a file depends on, and `sprout dependents FILE` what
-depends on it, tests included. Each line says why: the import, or for Go, the
-names it actually uses. `--depth N` follows more hops (`-1` for all), `--no-tests`
-skips test files, and `--json` is for scripts.
-
-```
-$ sprout dependents graph.go --depth 2
-11 files (6 tests) depend on graph.go
-
-  ai.go              uses Graph
-  codegraph.go       uses FileID, Graph, GraphFile +2 more
-  entry.go           uses FileID, Graph
-  query.go           uses FileID, Graph
-  codegraph_test.go  test · uses Graph
-  graph_test.go      test · uses FileID, Graph, GraphFile +1 more
-  graphdump_test.go  test · uses FileID
-  main.go            via ai.go · uses AIMap
-  ai_test.go         test · via ai.go · uses estimateTokens
-  bench_test.go      test · via codegraph.go · uses buildGraph
-  query_test.go      test · via query.go · uses queryResult
-```
-
-Go is resolved to the file that declares what's used. Other languages are
-resolved from their imports: tsconfig `paths` and workspace packages for
-TypeScript, real source roots for Python, and crates, `use` trees and workspace
-crates for Rust. `tools/accuracy` checks this against each language's own
-tooling. To map a folder named `deps` or `dependents`, write `./deps`.
+versioned object, documented in [docs/tour-json.md](docs/tour-json.md). It
+works on a folder or on a repository you haven't cloned
+(`sprout tour github.com/owner/repo`). Tour is read-only: it respects ignore
+rules, skips symlinks, and never runs the commands it suggests. To map a folder
+named `tour`, write `sprout ./tour`.
 
 ## `impact`: what a change could break
 
@@ -239,6 +205,99 @@ test/integration/util/util.go — uses garbagecollector.NewGarbageCollector
 
 ```
 
+## `deps` and `dependents`: what a file touches
+
+`sprout deps FILE` lists what a file depends on, and `sprout dependents FILE` what
+depends on it, tests included. Each line says why: the import, or for Go, the
+names it actually uses. `--depth N` follows more hops (`-1` for all), `--no-tests`
+skips test files, and `--json` is for scripts.
+
+```
+$ sprout dependents graph.go --depth 2
+11 files (6 tests) depend on graph.go
+
+  ai.go              uses Graph
+  codegraph.go       uses FileID, Graph, GraphFile +2 more
+  entry.go           uses FileID, Graph
+  query.go           uses FileID, Graph
+  codegraph_test.go  test · uses Graph
+  graph_test.go      test · uses FileID, Graph, GraphFile +1 more
+  graphdump_test.go  test · uses FileID
+  main.go            via ai.go · uses AIMap
+  ai_test.go         test · via ai.go · uses estimateTokens
+  bench_test.go      test · via codegraph.go · uses buildGraph
+  query_test.go      test · via query.go · uses queryResult
+```
+
+Go is resolved to the file that declares what's used. Other languages are
+resolved from their imports: tsconfig `paths` and workspace packages for
+TypeScript, real source roots for Python, and crates, `use` trees and workspace
+crates for Rust. `tools/accuracy` checks this against each language's own
+tooling. To map a folder named `deps` or `dependents`, write `./deps`.
+
+## `--ai`: context for LLMs
+
+A structure-first map of the project, sized to a token budget (`--budget`,
+default 2000). It contains:
+
+- the README's opening line
+- the detected stack and languages
+- entry points and the config/CI files
+- uncommitted work and the 90-day hotspots
+- the layout, opened breadth-first
+- the **key files**: the files the rest of the code uses most, with their
+  function and type signatures
+
+It never includes file bodies. Here's the key-files section for
+[sindresorhus/ky](https://github.com/sindresorhus/ky):
+
+```
+## key files (most used first)
+source/types/options.ts (used by 12): export type SearchParamsInit; export type SearchParamsOption; …
+source/core/constants.ts (used by 8): export const supportsRequestStreams; export const supportsAbortController; …
+source/errors/KyError.ts (used by 7): export class KyError extends Error
+source/types/request.ts (used by 5): export type KyRequest<T = unknown>
+```
+
+Signatures come from Go's own parser. For TypeScript/JavaScript, Python,
+Rust, Java and Kotlin, Sprout reads declarations and imports line by line.
+Files are ranked by how many other files import or reference them, and tests
+don't count.
+
+## `--entry`: where to start reading
+
+```
+$ sprout github.com/charmbracelet/bubbletea --entry
+Reading order for bubbletea
+
+  1. README.md                   what the project is
+  2. tutorials/basics/main.go    entry point
+  3. tutorials/commands/main.go  entry point
+  4. tea.go                      used by 25 files
+  5. mouse.go                    used by 7 files
+```
+
+## A tree that knows what matters
+
+Inside a git repo, **`.gitignore` decides** what's shown. Sprout asks git
+itself, so nested ignores, negations and global excludes all work. Outside git,
+`node_modules`, `.venv`, `dist` and similar folders are hidden instead. The last
+line always says how much was left out.
+
+| Flag | |
+|---|---|
+| `-L, --depth N` | Limit depth |
+| `--ignore PATTERNS` | Hide matches, in gitignore syntax: `'*.log'`, `'src/gen/'`, `'docs/**/*.png'`, `'!keep.log'` |
+| `--only PATTERNS` | Show only matching files and prune emptied folders: `'*.go'`, `'web/src/**/*.tsx'` |
+| `--changed-within AGE` | Only files modified recently: `30m`, `12h`, `7d`, `2w` |
+| `--max-files N` | At most N files per folder, then `… 37 more files` |
+| `--size` | File sizes and **true** folder totals, even past `--depth` |
+| `--sort name\|size\|time` | Largest or newest first. `-r` reverses; `--dirs-first` lists folders first; `--si` uses powers of 1000 |
+| `-a, --all` | Show hidden and ignored entries |
+| `--hyperlink` | Make names clickable in terminals that support links |
+
+A `.sproutignore` in the project applies the same patterns on every run.
+
 ## `--diff`: a pull request as a tree
 
 ```
@@ -273,30 +332,6 @@ Any git URL, or `host/owner/repo` shorthand, is cloned into a temporary folder,
 mapped, and deleted afterwards. Private repos work through your git
 credentials. A cloned repo's own `.sproutrc` is ignored.
 
-## For coding agents: `sprout mcp`
-
-```bash
-claude mcp add sprout -- sprout mcp
-```
-
-```json
-{ "mcpServers": { "sprout": { "command": "sprout", "args": ["mcp"] } } }
-```
-
-| Tool | Does |
-|---|---|
-| `project_map` | The `--ai` map, key files included. Agents are told to call it first |
-| `reading_order` | The `--entry` list |
-| `tree` | A tree of any folder, with optional git status or churn |
-| `diff_tree` | `--diff` for a revision like `main...HEAD` |
-| `dependents` | What depends on a file, and why |
-| `deps` | What a file depends on, and why |
-| `impact` | What a change could break, and the tests to run: given files, uncommitted, staged, a range or a commit |
-| `context` | What to know before editing a file: signatures it uses, its users, its tests |
-
-The server is read-only. Paths and file arguments are confined to the project,
-symlinks included, git arguments can't carry options, and it never clones.
-
 ## Config
 
 Put default flags in `~/.config/sprout/config` (or `$SPROUT_CONFIG`), or in a
@@ -319,15 +354,38 @@ fields isn't a breaking change. Every other flag applies, so
 ## Speed
 
 Sprout reads only what the output needs and parses sources in parallel. On
-Kubernetes (31k files, warm cache):
+Kubernetes (31,412 files, Apple M4, warm cache), from the controlled run in the
+[benchmark log](https://sprout-devlabs.github.io/sprout-web/benchmarks/):
 
 | Command | Time |
 |---|---|
-| `sprout` | 0.47 s, about the same as `find` |
-| `sprout --entry` | 1.0 s |
-| `sprout --ai` | 1.1 s |
+| `sprout` | 0.23 s |
+| `sprout --json` | 0.33 s |
+| `sprout --entry` | 0.57 s |
+| `sprout --ai` | 0.72 s |
 
-`bench_test.go` reproduces these numbers.
+`tour` costs about what `--entry` does; `impact` and `context` add the tests
+to the graph (about half a second more on Kubernetes). `bench_test.go`
+reproduces the numbers, and the log says exactly how they were measured.
+
+## Why not repomix, aider or serena?
+
+They're good tools that solve neighbouring problems:
+
+- **[Repomix](https://github.com/yamadashy/repomix), [code2prompt](https://github.com/mufeedvh/code2prompt)**
+  pack whole files into one prompt. That's right when the model should read
+  everything and it fits. Sprout gives a ranked map (where to start, which
+  files everything depends on, with signatures) in a fixed token budget, and
+  answers questions about the code instead of shipping all of it.
+- **[Aider](https://github.com/Aider-AI/aider)'s repo map** ranks files and
+  symbols much like `--ai` does, but it lives inside aider. Sprout's map,
+  graph and impact work in any agent over MCP, and in your terminal.
+- **[Serena](https://github.com/oraios/serena)** gives agents symbol-level
+  navigation and editing through language servers, precise but heavier: a
+  language server per language. Sprout is one binary with nothing to set up;
+  its graph is file-level, built from imports and references, and adds what a
+  language server doesn't: reading order, change impact with tests to run,
+  git hotspots, and repositories you haven't cloned.
 
 ## Design principles
 
