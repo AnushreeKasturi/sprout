@@ -301,8 +301,22 @@ func TestReadmeProse(t *testing.T) {
 		"The fun way to build apps. A Go framework\nbased on The Elm Architecture.\n\nMore.\n": "The fun way to build apps. A Go framework based on The Elm Architecture.",
 		// gleam: a licence header in an HTML comment
 		"<!--\n  SPDX-License-Identifier: Apache-2.0\n-->\n\nGleam is friendly.\n": "Gleam is friendly.",
-		// list items stand alone
+		// a README that is only a list: its first item
 		"- First item\n- Second item\n": "First item",
+		// a paragraph after a list wins over the list
+		"- ⚡ Fast\n- Small\n\nTool is a fast, small thing.\n": "Tool is a fast, small thing.",
+		// a code block or a table right after the intro isn't part of it
+		"Intro text.\n```sh\nnpm i\n```\n":   "Intro text.",
+		"Intro text\n| a | b |\n|---|---|\n": "Intro text",
+		// inline HTML comments go, the text around them stays
+		"<!-- badges --> Real description.\n":   "Real description.",
+		"Real <!-- note --> description.\n":     "Real description.",
+		"Real description. <!--\nhidden\n-->\n": "Real description.",
+		// a GitHub alert is an aside; a quoted tagline is a description
+		"> [!NOTE]\n> This project is archived.\n\nTool does things.\n": "Tool does things.",
+		"> A tiny tool for big jobs.\n":                                 "A tiny tool for big jobs.",
+		// reference-style links keep their text
+		"Runs [containers] across hosts.\n\n[containers]: https://x\n": "Runs containers across hosts.",
 		// long text ends at a sentence, not mid-word
 		strings.Repeat("Word ", 30) + "end. " + strings.Repeat("More ", 30) + "\n": strings.TrimSpace(strings.Repeat("Word ", 30)) + " end.",
 	} {

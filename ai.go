@@ -319,7 +319,7 @@ func readmeSummary(root string) string {
 }
 
 var (
-	mdLink     = regexp.MustCompile(`!?\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])`) // [text](url) and [text][ref]
+	mdLink     = regexp.MustCompile(`!?\[([^\]]*)\](?:\([^)]*\)|\[[^\]]*\])?`) // [text](url), [text][ref] and [text]
 	mdEscape   = regexp.MustCompile(`\\([\\*_{}\[\]()#+.!-])`)
 	mdEmphasis = strings.NewReplacer("**", "", "__", "", "`", "")
 )
@@ -327,36 +327,66 @@ var (
 // readmeProse is shared by the map and tour: the first prose line in the
 // opening 40 lines, as plain text. Headings, badges and HTML are skipped.
 func readmeProse(r io.Reader) string {
-	sc := bufio.NewScanner(r)
-	var lines []string
-	inComment := false
-	for i := 0; i < 40 && sc.Scan(); i++ {
-		line := strings.TrimSpace(sc.Text())
-		// An HTML comment over several lines (licence headers) isn't prose.
-		if strings.HasPrefix(line, "<!--") {
-			inComment = true
-		}
-		if inComment {
-			inComment = !strings.Contains(line, "-->")
-			line = ""
-		}
-		lines = append(lines, line)
-	}
+	lines := readmeLines(r)
+	item := "" // a list item, used only when there's no paragraph
 	for i, line := range lines {
 		if notProse(line) || i+1 < len(lines) && setextUnderline(lines[i+1]) {
 			continue // "Title" over "=====" is a heading too
 		}
+		if listItem(line) {
+			if item == "" {
+				item = plainText(line)
+			}
+			continue
+		}
 		// A paragraph wrapped over several lines is one sentence or more,
-		// so read on to its end. A list item stands alone.
+		// so read on to its end.
 		para := line
-		for j := i + 1; !listItem(line) && j < len(lines) && !notProse(lines[j]) && !listItem(lines[j]) && !setextUnderline(lines[j]); j++ {
+		for j := i + 1; j < len(lines) && !notProse(lines[j]) && !listItem(lines[j]) && !setextUnderline(lines[j]); j++ {
 			para += " " + lines[j]
 		}
-		if para = plainText(para); para != "" {
+		if para = plainText(strings.Join(strings.Fields(para), " ")); para != "" {
 			return firstSentences(para, 200)
 		}
 	}
-	return ""
+	return firstSentences(item, 200)
+}
+
+var htmlComment = regexp.MustCompile(`<!--.*?-->`)
+
+// readmeLines is the opening 40 lines of a README, trimmed, with fenced code
+// blocks and HTML comments (inline or over several lines) blanked out.
+func readmeLines(r io.Reader) []string {
+	sc := bufio.NewScanner(r)
+	var lines []string
+	inFence, inComment, inAlert := false, false, false
+	for i := 0; i < 40 && sc.Scan(); i++ {
+		line := strings.TrimSpace(sc.Text())
+		// A GitHub alert, "> [!NOTE]" and the quoted lines after it, is an
+		// aside, not the description. Other quotes can be a tagline.
+		if inAlert = strings.HasPrefix(line, ">") && (inAlert || strings.HasPrefix(strings.TrimLeft(line, "> "), "[!")); inAlert {
+			line = ""
+		}
+		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+			inFence, line = !inFence, ""
+		} else if inFence {
+			line = ""
+		}
+		if inComment {
+			end := strings.Index(line, "-->")
+			if end < 0 {
+				line = ""
+			} else {
+				line, inComment = line[end+3:], false
+			}
+		}
+		line = htmlComment.ReplaceAllString(line, "")
+		if start := strings.Index(line, "<!--"); start >= 0 {
+			line, inComment = line[:start], true
+		}
+		lines = append(lines, strings.TrimSpace(line))
+	}
+	return lines
 }
 
 var listMarker = regexp.MustCompile(`^(?:[-*+]|\d+[.)])\s`)
@@ -377,12 +407,12 @@ func firstSentences(text string, max int) string {
 	return cut + "…"
 }
 
-// notProse reports headings, badges, images and HTML.
+// notProse reports headings, badges, images, HTML and table rows.
 func notProse(line string) bool {
 	if line == "" {
 		return true
 	}
-	for _, p := range []string{"#", "!", "[!", "[<", "<", "="} {
+	for _, p := range []string{"#", "!", "[!", "[<", "<", "=", "|"} {
 		if strings.HasPrefix(line, p) {
 			return true
 		}
