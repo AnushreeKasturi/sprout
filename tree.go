@@ -304,11 +304,11 @@ func (p printer) linkTarget(n *Node) string {
 	if err != nil {
 		return "" // a pipe, socket or device, not a link
 	}
-	return paint(p.color, dim, " -> "+target)
+	return paint(p.color, dim, " -> "+printable(target))
 }
 
 func (p printer) label(n *Node) string {
-	name := n.Name
+	name := printable(n.Name) // file names come from the repository
 	switch {
 	case n.IsDir:
 		name = paint(p.color, blue+";"+bold, name+"/")

@@ -213,7 +213,7 @@ func TestTourPresentationSafety(t *testing.T) {
 	if r.Purpose == nil || strings.Contains(raw, "password") || strings.Contains(raw, "secret") || r.ReadingOrder[0].Path != "README.txt" {
 		t.Fatalf("unsafe excerpt: %s", raw)
 	}
-	if got := tourText("hello\x1b[31m\n\u202eworld"); strings.ContainsAny(got, "\x1b\n\u202e") {
+	if got := printable("hello\x1b[31m\n\u202eworld"); strings.ContainsAny(got, "\x1b\n\u202e") {
 		t.Fatalf("terminal control characters: %q", got)
 	}
 	if runtime.GOOS != "windows" {

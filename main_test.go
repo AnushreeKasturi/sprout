@@ -78,3 +78,19 @@ func TestSymlinkTarget(t *testing.T) {
 		t.Errorf("symlink target missing:\n%s", out)
 	}
 }
+
+// File names and link targets come from the repository: they mustn't reach
+// the terminal as escape sequences.
+func TestTreeEscapesControlCharacters(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "evil\x1b[31mname"), nil, 0o600); err != nil {
+		t.Skipf("can't create the file here: %v", err)
+	}
+	if err := os.Symlink("x\x1b]0;title\x07", filepath.Join(dir, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	out, _, _ := runCLI(t, dir, "--no-config")
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Fatalf("control characters reached the output: %q", out)
+	}
+}
