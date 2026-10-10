@@ -372,6 +372,9 @@ func printImpact(w io.Writer, g *Graph, res impactResult, all bool) {
 		default:
 			fmt.Fprintf(w, "Nothing changed (%s)\n", res.Source)
 		}
+		if res.Source == "uncommitted changes" {
+			fmt.Fprintln(w, "For this branch's changes: sprout impact --diff main...HEAD. For the last commit: --commit HEAD")
+		}
 		return
 	}
 	var code []queryHit

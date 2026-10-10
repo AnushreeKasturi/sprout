@@ -64,7 +64,7 @@ func TestImpactFromGit(t *testing.T) {
 	chdir(t, dir)
 
 	out, _, _ := runCLI(t, "impact")
-	if !strings.Contains(out, "Nothing changed (uncommitted changes)") {
+	if !strings.Contains(out, "Nothing changed (uncommitted changes)") || !strings.Contains(out, "sprout impact --diff main...HEAD") {
 		t.Errorf("clean tree:\n%s", out)
 	}
 
