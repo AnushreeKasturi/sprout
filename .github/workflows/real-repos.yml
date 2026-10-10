@@ -1,0 +1,39 @@
+name: Real repositories
+
+# Sprout on pinned real projects (realrepo_test.go): cli/cli, bubbletea,
+# click and ky. Slower and networked, so it runs when the code that reads
+# and ranks projects changes, weekly, and on demand, not on every PR.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "*.go"
+      - "go.mod"
+      - ".github/workflows/real-repos.yml"
+  pull_request:
+    paths:
+      - "*.go"
+      - "go.mod"
+      - ".github/workflows/real-repos.yml"
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  real-repos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/real-repos
+          key: real-repos-${{ hashFiles('realrepo_test.go') }}
+      - run: go test -count=1 -run TestRealRepos -v .
+        env:
+          SPROUT_REAL_REPOS: ${{ runner.temp }}/real-repos
