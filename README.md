@@ -354,17 +354,19 @@ fields isn't a breaking change. Every other flag applies, so
 ## Speed
 
 Sprout reads only what the output needs and parses sources in parallel. On
-Kubernetes (31,419 files, Apple M4, warm cache, medians):
+Kubernetes (31,412 files, Apple M4, warm cache), from the controlled run in the
+[benchmark log](https://sprout-devlabs.github.io/sprout-web/benchmarks/):
 
 | Command | Time |
 |---|---|
-| `sprout` | 0.51 s (`find . -type f`: 0.58 s) |
-| `sprout --entry` | 1.06 s |
-| `sprout tour` | 1.12 s |
-| `sprout --ai` | 1.30 s |
-| `sprout impact FILE` | 1.37 s |
+| `sprout` | 0.23 s |
+| `sprout --json` | 0.33 s |
+| `sprout --entry` | 0.57 s |
+| `sprout --ai` | 0.72 s |
 
-`bench_test.go` reproduces them; the [benchmark log](https://sprout-devlabs.github.io/sprout-web/benchmarks/) tracks them over time.
+`tour` costs about what `--entry` does; `impact` and `context` add the tests
+to the graph (about half a second more on Kubernetes). `bench_test.go`
+reproduces the numbers, and the log says exactly how they were measured.
 
 ## Why not repomix, aider or serena?
 
