@@ -303,6 +303,11 @@ func TestReadmeProse(t *testing.T) {
 		// a GitHub alert is an aside; a quoted tagline is a description
 		"> [!NOTE]\n> This project is archived.\n\nTool does things.\n": "Tool does things.",
 		"> A tiny tool for big jobs.\n":                                 "A tiny tool for big jobs.",
+		// a centred HTML tagline under the logo (typer, starlette)
+		"<p align=\"center\">\n  <a href=\"x\"><img src=\"logo.svg\"></a>\n</p>\n<p align=\"center\">\n    <em>Typer, build great CLIs. Easy to code.</em>\n</p>\n": "Typer, build great CLIs. Easy to code.",
+		// "Label: URL" lines aren't the description
+		"**Documentation**: [https://x.dev](https://x.dev)\n\nX is a library for building CLIs.\n": "X is a library for building CLIs.",
+		"<h1 align=\"center\">Tool</h1>\n\nTool does things.\n":                                    "Tool does things.",
 		// reference-style links keep their text
 		"Runs [containers] across hosts.\n\n[containers]: https://x\n": "Runs containers across hosts.",
 		// long text ends at a sentence, not mid-word
@@ -382,10 +387,24 @@ func TestTourSkipsTutorials(t *testing.T) {
 	write(t, dir, "go.mod", "module example.com/lib\n")
 	write(t, dir, "lib.go", "package lib\nfunc Run() {}\n")
 	write(t, dir, "tutorials/basics/main.go", "package main\nimport \"example.com/lib\"\nfunc main() { lib.Run() }\n")
+	write(t, dir, "docs_src/first/main.go", "package main\nimport \"example.com/lib\"\nfunc main() { lib.Run() }\n")
 	r, _ := tourJSON(t, dir)
 	for _, s := range r.ReadingOrder {
-		if strings.HasPrefix(s.Path, "tutorials/") {
+		if strings.HasPrefix(s.Path, "tutorials/") || strings.HasPrefix(s.Path, "docs_src/") {
 			t.Fatalf("tutorial ranked: %+v", r.ReadingOrder)
 		}
+	}
+}
+
+// pyproject.toml and requirements.txt are one Python project, its package
+// managers listed once.
+func TestTourOneEcosystemLine(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "pyproject.toml", "[project]\nname = \"x\"\n")
+	write(t, dir, "requirements.txt", "requests\n")
+	write(t, dir, "app.py", "x = 1\n")
+	out, _, _ := runCLI(t, "tour", dir)
+	if want := "Ecosystem: Python (pyproject.toml, requirements.txt; pip/poetry/uv)\n"; !strings.Contains(out, want) || strings.Count(out, "Ecosystem:") != 1 {
+		t.Errorf("want %q in:\n%s", want, out)
 	}
 }
