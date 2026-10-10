@@ -350,12 +350,12 @@ func runningSprout() string {
 	if err != nil {
 		return "sprout"
 	}
-	if real, err := filepath.EvalSymlinks(self); err == nil {
-		self = real
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
 	}
 	if onPath, err := exec.LookPath("sprout"); err == nil {
 		if abs, err := filepath.Abs(onPath); err == nil {
-			if real, err := filepath.EvalSymlinks(abs); err == nil && real == self {
+			if resolved, err := filepath.EvalSymlinks(abs); err == nil && resolved == self {
 				return abs
 			}
 		}
