@@ -22,7 +22,7 @@ sprout impact                         # what your uncommitted changes could brea
 claude mcp add sprout -- sprout mcp   # give Claude Code the same map (other agents: below)
 ```
 
-**Try it on any GitHub repo, no clone needed:** `sprout github.com/charmbracelet/bubbletea --entry`.
+**Try it on any GitHub repo, no clone needed:** `sprout tour github.com/charmbracelet/bubbletea`.
 
 **No install, with Go:** `go run github.com/Sprout-DevLabs/sprout@latest tour`.
 
@@ -71,6 +71,9 @@ claude mcp add sprout -- sprout mcp
 { "servers": { "sprout": { "type": "stdio", "command": "sprout", "args": ["mcp", "${workspaceFolder}"] } } }
 ```
 
+Or let Sprout print it with your `sprout`'s full path filled in:
+`sprout mcp --print-config cursor` (or `vscode`, `claude-desktop`, `claude-code`).
+
 **Claude Desktop**: Settings → Developer → Edit Config, which opens
 `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or
 `%APPDATA%\Claude\claude_desktop_config.json` on Windows. Desktop apps don't
@@ -101,9 +104,10 @@ symlinks included, git arguments can't carry options, and it never clones.
   Run `sprout mcp` in a terminal; it should print `MCP server on stdio, root …`
   and wait. "command not found" in the client's MCP log means it can't see
   your `PATH`: use the full path from `which sprout`.
-- **The map is of the wrong folder,** or huge and slow: the server maps the
-  folder it was started in. Pass the project explicitly, as in the Cursor and
-  Claude Desktop examples.
+- **The map is of the wrong folder:** the server serves the folder you pass
+  it, else the one your client says is open (MCP roots), else the one it
+  started in. Started in `/` or your home folder, it refuses rather than map
+  everything; pass the project explicitly, as in the examples above.
 - **Stale results:** there are none to worry about. Every call reads the
   disk again, so files your agent just wrote are in the next answer.
 
@@ -130,9 +134,11 @@ Next (run from the directory you toured; POSIX shell or PowerShell):
 
 `--limit N` (default 8, up to 50) sets how many reading steps and directories
 are shown; anything left out is counted. `--json` prints a stable,
-versioned object, documented in [docs/tour-json.md](docs/tour-json.md). Tour is
-offline and read-only: it respects ignore rules, skips symlinks, and never runs
-the commands it suggests. To map a folder named `tour`, write `sprout ./tour`.
+versioned object, documented in [docs/tour-json.md](docs/tour-json.md). It
+works on a folder or on a repository you haven't cloned
+(`sprout tour github.com/owner/repo`). Tour is read-only: it respects ignore
+rules, skips symlinks, and never runs the commands it suggests. To map a folder
+named `tour`, write `sprout ./tour`.
 
 ## `impact`: what a change could break
 
