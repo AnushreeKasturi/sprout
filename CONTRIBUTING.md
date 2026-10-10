@@ -122,6 +122,18 @@ python3 tools/accuracy/run.py
 [tools/accuracy/README.md](tools/accuracy/README.md) explains the numbers and
 has the current results.
 
+## Real repositories
+
+`realrepo_test.go` runs Sprout on pinned commits of cli/cli, bubbletea, click
+and ky, and checks what has broken on them before: graph sizes, README
+summaries, reading order. CI runs it when Go files change, and weekly:
+
+```bash
+SPROUT_REAL_REPOS=/tmp/sprout-real go test -run TestRealRepos -v .
+```
+
+When a bug shows up on a real project, add the project and a check here.
+
 ## Conduct and security
 
 Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
