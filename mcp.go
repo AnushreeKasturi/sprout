@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -244,17 +246,23 @@ func serveMCP(args []string, in io.Reader, out, errOut io.Writer) int {
 		root = args[0]
 	}
 	if root == "-h" || root == "--help" || root == "-help" {
-		fmt.Fprintln(out, "Usage: sprout mcp [root]\n\nServes Sprout to coding agents over MCP on stdio, for the project at root (default .).")
+		fmt.Fprintln(out, "Usage: sprout mcp [root]\n       sprout mcp --print-config claude-code|cursor|vscode|claude-desktop [project]\n\nServes Sprout to coding agents over MCP on stdio, for the project at root.\nWithout one, the folder the client says is open (MCP roots), else the current folder.\n--print-config prints the setup for a client, with this sprout's full path.")
 		return 0
+	}
+	if root == "--print-config" {
+		return printMCPConfig(args[1:], out, errOut)
 	}
 	root, err := resolveRoot(root)
 	if err != nil {
 		fmt.Fprintln(errOut, "sprout mcp:", err)
 		return 1
 	}
+	s := &mcpConn{root: root, explicit: len(args) > 0, enc: json.NewEncoder(out), errOut: errOut}
 	fmt.Fprintf(errOut, "sprout %s: MCP server on stdio, root %s\n", resolveVersion(), root)
+	if s.broad() {
+		fmt.Fprintf(errOut, "sprout mcp: %s isn't a project; tools will refuse it until the client names its open folder or you pass a path: sprout mcp /path/to/project\n", root)
+	}
 
-	enc := json.NewEncoder(out)
 	sc := bufio.NewScanner(in)
 	sc.Buffer(make([]byte, 0, 64*1024), 10<<20)
 	for sc.Scan() {
@@ -262,27 +270,188 @@ func serveMCP(args []string, in io.Reader, out, errOut io.Writer) int {
 		if len(line) == 0 {
 			continue
 		}
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			enc.Encode(map[string]any{"jsonrpc": "2.0", "id": nil, "error": rpcError{-32700, "parse error"}})
+		var msg struct {
+			rpcRequest
+			Result json.RawMessage `json:"result"`
+		}
+		if err := json.Unmarshal(line, &msg); err != nil {
+			s.enc.Encode(map[string]any{"jsonrpc": "2.0", "id": nil, "error": rpcError{-32700, "parse error"}})
 			continue
 		}
-		result, rerr := handleMCP(root, req)
-		if req.ID == nil {
-			continue // notification: never answered
+		if msg.Method == "" {
+			s.takeRoots(msg.ID, msg.Result) // a response to our roots/list
+			continue
 		}
-		resp := map[string]any{"jsonrpc": "2.0", "id": req.ID}
-		if rerr != nil {
-			resp["error"] = rerr
-		} else {
-			resp["result"] = result
-		}
-		if err := enc.Encode(resp); err != nil {
+		if err := s.serve(msg.rpcRequest); err != nil {
 			return 1
 		}
 	}
 	return 0
 }
+
+// printMCPConfig prints a client's setup for this sprout: args are the
+// client and, for clients that don't know the project, its folder.
+func printMCPConfig(args []string, out, errOut io.Writer) int {
+	clients := "claude-code, cursor, vscode or claude-desktop"
+	if len(args) == 0 || len(args) > 2 {
+		fmt.Fprintln(errOut, "sprout mcp: --print-config needs a client:", clients)
+		return 2
+	}
+	// The PATH entry (Homebrew's bin link) outlives upgrades; the binary's
+	// own path is versioned. Desktop apps often lack PATH, so it's in full.
+	exe, err := exec.LookPath("sprout")
+	if err != nil {
+		if exe, err = os.Executable(); err != nil {
+			exe = "sprout"
+		}
+	}
+	if abs, err := filepath.Abs(exe); err == nil {
+		exe = abs
+	}
+	project := "."
+	if len(args) == 2 {
+		project = args[1]
+	}
+	project, err = filepath.Abs(project)
+	if err != nil {
+		fmt.Fprintln(errOut, "sprout mcp:", err)
+		return 1
+	}
+	server := func(extra map[string]any, mcpArgs ...string) map[string]any {
+		m := map[string]any{"command": exe, "args": append([]string{"mcp"}, mcpArgs...)}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	var config any
+	where := ""
+	switch args[0] {
+	case "claude-code":
+		fmt.Fprintf(out, "claude mcp add sprout -- %s mcp\n", exe)
+		return 0
+	case "cursor":
+		config, where = map[string]any{"mcpServers": map[string]any{"sprout": server(nil, "${workspaceFolder}")}}, ".cursor/mcp.json in your project, or ~/.cursor/mcp.json"
+	case "vscode":
+		config, where = map[string]any{"servers": map[string]any{"sprout": server(map[string]any{"type": "stdio"}, "${workspaceFolder}")}}, ".vscode/mcp.json in your project"
+	case "claude-desktop":
+		config, where = map[string]any{"mcpServers": map[string]any{"sprout": server(nil, project)}}, "Claude Desktop: Settings > Developer > Edit Config"
+	default:
+		fmt.Fprintf(errOut, "sprout mcp: unknown client %q; use %s\n", args[0], clients)
+		return 2
+	}
+	data, _ := json.MarshalIndent(config, "", "  ")
+	fmt.Fprintf(errOut, "Put this in %s:\n", where)
+	fmt.Fprintf(out, "%s\n", data)
+	return 0
+}
+
+// mcpConn is one client connection. Its root can change once: when no
+// root was given, a client that supports MCP roots says which folder is open.
+type mcpConn struct {
+	root     string
+	explicit bool // given on the command line, or by the client
+	canRoots bool // the client answers roots/list
+	asked    int  // roots/list requests sent, with ids "roots-1", "roots-2"…
+	enc      *json.Encoder
+	errOut   io.Writer
+}
+
+// serve answers one request, or acts on a notification.
+func (s *mcpConn) serve(req rpcRequest) error {
+	switch req.Method {
+	case "initialize":
+		var p struct {
+			Capabilities struct {
+				Roots *json.RawMessage `json:"roots"`
+			} `json:"capabilities"`
+		}
+		json.Unmarshal(req.Params, &p)
+		s.canRoots = p.Capabilities.Roots != nil
+	case "notifications/initialized", "notifications/roots/list_changed":
+		s.askRoots()
+	}
+	var result any
+	var rerr *rpcError
+	if req.Method == "tools/call" && s.broad() {
+		result = toolResult(broadRootMessage, true)
+	} else {
+		result, rerr = handleMCP(s.root, req)
+	}
+	if req.ID == nil {
+		return nil // notification: never answered
+	}
+	resp := map[string]any{"jsonrpc": "2.0", "id": req.ID}
+	if rerr != nil {
+		resp["error"] = rerr
+	} else {
+		resp["result"] = result
+	}
+	return s.enc.Encode(resp)
+}
+
+// askRoots asks the client which folders are open, unless a root was given.
+func (s *mcpConn) askRoots() {
+	if s.explicit || !s.canRoots {
+		return
+	}
+	s.asked++
+	s.enc.Encode(map[string]any{"jsonrpc": "2.0", "id": fmt.Sprintf("roots-%d", s.asked), "method": "roots/list"})
+}
+
+// takeRoots serves the first local folder from a roots/list answer.
+func (s *mcpConn) takeRoots(id, result json.RawMessage) {
+	var name string
+	if json.Unmarshal(id, &name) != nil || !strings.HasPrefix(name, "roots-") || s.explicit {
+		return
+	}
+	var r struct {
+		Roots []struct {
+			URI string `json:"uri"`
+		} `json:"roots"`
+	}
+	json.Unmarshal(result, &r)
+	for _, root := range r.Roots {
+		if dir, ok := fileURIPath(root.URI); ok {
+			if resolved, err := resolveRoot(dir); err == nil {
+				s.root, s.explicit = resolved, true
+				fmt.Fprintf(s.errOut, "sprout mcp: the client's open folder, root %s\n", resolved)
+				return
+			}
+		}
+	}
+}
+
+// fileURIPath is the local path of a file:// URI.
+func fileURIPath(uri string) (string, bool) {
+	u, err := url.Parse(uri)
+	if err != nil || u.Scheme != "file" || u.Path == "" {
+		return "", false
+	}
+	p := u.Path
+	if len(p) > 2 && p[0] == '/' && p[2] == ':' {
+		p = p[1:] // file:///C:/project on Windows
+	}
+	return filepath.FromSlash(p), true
+}
+
+// broad reports a root that is the whole filesystem or the home folder,
+// which the server reached only because the client started it there: mapping
+// it would walk hundreds of thousands of files nobody asked about.
+func (s *mcpConn) broad() bool {
+	if s.explicit {
+		return false
+	}
+	home, _ := os.UserHomeDir()
+	if h, err := filepath.EvalSymlinks(home); err == nil {
+		home = h
+	}
+	return filepath.Dir(s.root) == s.root || s.root == home
+}
+
+const broadRootMessage = "Sprout was started in the filesystem root or the home folder, not in a project, " +
+	"so it won't map it. Ask the user to give the server the project's path in its MCP config " +
+	`("args": ["mcp", "/path/to/project"]).`
 
 func handleMCP(root string, req rpcRequest) (any, *rpcError) {
 	switch req.Method {
@@ -360,7 +529,15 @@ func callTool(root string, tool mcpTool, raw json.RawMessage) (string, error) {
 	}
 	// Show the path the agent asked for, not the user's absolute home path.
 	shown := filepath.ToSlash(filepath.Join(".", a.Path))
-	return strings.Replace(out.String(), dir, shown, 1), nil
+	text := strings.Replace(out.String(), dir, shown, 1)
+	// Notes that succeeded anyway (a map over its budget, --git outside a
+	// repository) would otherwise only reach a terminal nobody watches.
+	for _, line := range strings.Split(strings.TrimSpace(errOut.String()), "\n") {
+		if note := strings.TrimPrefix(line, "sprout: "); note != "" {
+			text += "\nNote: " + strings.ReplaceAll(note, dir, shown)
+		}
+	}
+	return text, nil
 }
 
 // budgetArgs adds --budget to args when the agent gave one; 0 or less is an
