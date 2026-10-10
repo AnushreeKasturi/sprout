@@ -329,22 +329,52 @@ var (
 func readmeProse(r io.Reader) string {
 	sc := bufio.NewScanner(r)
 	var lines []string
+	inComment := false
 	for i := 0; i < 40 && sc.Scan(); i++ {
-		lines = append(lines, strings.TrimSpace(sc.Text()))
+		line := strings.TrimSpace(sc.Text())
+		// An HTML comment over several lines (licence headers) isn't prose.
+		if strings.HasPrefix(line, "<!--") {
+			inComment = true
+		}
+		if inComment {
+			inComment = !strings.Contains(line, "-->")
+			line = ""
+		}
+		lines = append(lines, line)
 	}
 	for i, line := range lines {
 		if notProse(line) || i+1 < len(lines) && setextUnderline(lines[i+1]) {
 			continue // "Title" over "=====" is a heading too
 		}
-		if line = plainText(line); line == "" {
-			continue
+		// A paragraph wrapped over several lines is one sentence or more,
+		// so read on to its end. A list item stands alone.
+		para := line
+		for j := i + 1; !listItem(line) && j < len(lines) && !notProse(lines[j]) && !listItem(lines[j]) && !setextUnderline(lines[j]); j++ {
+			para += " " + lines[j]
 		}
-		if r := []rune(line); len(r) > 200 {
-			line = string(r[:200]) + "…"
+		if para = plainText(para); para != "" {
+			return firstSentences(para, 200)
 		}
-		return line
 	}
 	return ""
+}
+
+var listMarker = regexp.MustCompile(`^(?:[-*+]|\d+[.)])\s`)
+
+func listItem(line string) bool { return listMarker.MatchString(line) }
+
+// firstSentences shortens text to at most max runes, ending at a full stop
+// when one falls in the second half, and with "…" when it can't.
+func firstSentences(text string, max int) string {
+	r := []rune(text)
+	if len(r) <= max {
+		return text
+	}
+	cut := string(r[:max])
+	if i := strings.LastIndex(cut, ". "); i >= len(cut)/2 {
+		return cut[:i+1]
+	}
+	return cut + "…"
 }
 
 // notProse reports headings, badges, images and HTML.
@@ -408,11 +438,12 @@ func keyFiles(root *Node) (entries, config []string) {
 	return capList(entries, 10), capList(config, 15)
 }
 
-// lowValueDirs hold code that isn't the project itself: tests, samples,
-// fixtures, vendored dependencies.
+// lowValueDirs hold code that isn't the project itself: tests, samples and
+// tutorials, build scripts, fixtures, vendored dependencies.
 var lowValueDirs = map[string]bool{
 	"test": true, "tests": true, "testdata": true, "__tests__": true, "examples": true,
-	"example": true, "fixtures": true, "vendor": true, "third_party": true,
+	"example": true, "_examples": true, "tutorial": true, "tutorials": true, "samples": true,
+	"script": true, "scripts": true, "fixtures": true, "vendor": true, "third_party": true,
 }
 
 func isTestPath(rel string) bool {
