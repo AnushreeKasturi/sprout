@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -180,14 +179,31 @@ func TestImpactTestCommands(t *testing.T) {
 	}
 }
 
-// Test paths come from the repository: a command line quotes them.
-func TestCommandLineQuotes(t *testing.T) {
-	c := testCmd{Dir: "my app", Argv: []string{"python", "-m", "pytest", "tests/it's $(x).py"}, runner: 3}
-	got := commandLine(c, false)
-	if runtime.GOOS != "windows" {
-		want := `(cd 'my app' && python -m pytest 'tests/it'"'"'s $(x).py')`
-		if got != want {
-			t.Fatalf("got %s, want %s", got, want)
+// Test paths come from the repository. A command line is only offered when
+// every path is safe unquoted in any shell; otherwise the tests are listed.
+func TestCommandLineSafety(t *testing.T) {
+	safe := testCmd{Dir: "backend", Argv: []string{"python", "-m", "pytest", "tests/test_a.py"}, runner: 3}
+	if line, ok := commandLine(safe, false); !ok || line != "(cd backend && python -m pytest tests/test_a.py)" {
+		t.Errorf("safe command: %q %v", line, ok)
+	}
+	for _, bad := range []testCmd{
+		{Dir: ".", Argv: []string{"python", "-m", "pytest", "tests/it's $(x).py"}, runner: 3},
+		{Dir: ".", Argv: []string{"npx", "jest", "a&calc.test.js"}, runner: 2}, // cmd.exe runs calc
+		{Dir: "my app", Argv: []string{"npx", "jest", "a.test.js"}, runner: 2},
+		{Dir: ".", Argv: []string{"npx", "jest", "--config=evil.js"}, runner: 2}, // read as an option
+	} {
+		if line, ok := commandLine(bad, false); ok {
+			t.Errorf("unsafe command offered: %s", line)
 		}
+	}
+
+	dir := t.TempDir()
+	write(t, dir, "pyproject.toml", "[tool.pytest.ini_options]\n")
+	write(t, dir, "app.py", "def f(): pass\n")
+	write(t, dir, "tests/test_a&b.py", "import app\n")
+	chdir(t, dir)
+	out, _, _ := runCLI(t, "impact", "app.py")
+	if strings.Contains(out, "pytest") || !strings.Contains(out, "  tests/test_a&b.py\n") {
+		t.Errorf("an unsafe test path should be listed, not put in a command:\n%s", out)
 	}
 }

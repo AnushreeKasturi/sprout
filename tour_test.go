@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -216,28 +215,17 @@ func TestTourPresentationSafety(t *testing.T) {
 	if got := printable("hello\x1b[31m\n\u202eworld"); strings.ContainsAny(got, "\x1b\n\u202e") {
 		t.Fatalf("terminal control characters: %q", got)
 	}
-	if runtime.GOOS != "windows" {
-		bash, err := exec.LookPath("bash")
-		if err != nil {
-			t.Skip("needs bash")
-		}
-		path := "./a'$(echo injected)/main.go"
+	// A path that needs quoting gets no suggestion: quoting that is safe in
+	// one shell isn't in another (cmd.exe has no single quotes).
+	for path, offered := range map[string]bool{"./cmd/app/main.go": true, "./a'$(echo injected)/main.go": false, "./a&calc/main.go": false} {
 		r.NextCommands = [][]string{{"sprout", "context", path}}
 		var out bytes.Buffer
 		if err := printTour(&out, r); err != nil {
 			t.Fatal(err)
 		}
-		for _, line := range strings.Split(out.String(), "\n") {
-			if strings.HasPrefix(line, "  sprout context ") {
-				cmd := exec.Command(bash, "-c", "sprout() { printf '%s' \"$2\"; }; "+line)
-				got, err := cmd.CombinedOutput()
-				if err != nil || string(got) != path {
-					t.Fatalf("unsafe command: %q: %v %s", line, err, got)
-				}
-				return
-			}
+		if got := strings.Contains(out.String(), "sprout context "); got != offered {
+			t.Errorf("%s: suggestion offered %v, want %v:\n%s", path, got, offered, out.String())
 		}
-		t.Fatal("context suggestion missing")
 	}
 }
 

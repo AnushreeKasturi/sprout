@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"unicode"
 )
@@ -314,33 +313,25 @@ func writeTourReading(b *strings.Builder, r tourResult) {
 func writeTourNext(b *strings.Builder, commands [][]string) {
 	fmt.Fprintln(b, "\nNext (run from the directory you toured; POSIX shell or PowerShell):")
 	for _, argv := range commands {
-		// Only the context path is repository-controlled.
+		// Only the context path is repository-controlled. A path that isn't
+		// safe in every shell gets no suggestion rather than a quoting that
+		// is right in one shell and dangerous in another.
 		parts := append([]string{}, argv...)
 		if len(parts) == 3 && parts[1] == "context" {
-			if printable(parts[2]) != parts[2] {
-				continue // no misleading executable suggestion for control characters
+			if !shellSafe(parts[2]) {
+				continue
 			}
-			parts[2] = shellQuote(parts[2])
+			parts[2] = "'" + parts[2] + "'"
 		}
 		fmt.Fprintf(b, "  %s\n", strings.Join(parts, " "))
 	}
 }
 
-// shellQuote quotes s for a POSIX shell or PowerShell. Single quotes
-// prevent expansion; the two escape apostrophes differently.
-func shellQuote(s string) string {
-	escape := `'"'"'`
-	if runtime.GOOS == "windows" {
-		escape = "''"
-	}
-	return "'" + strings.ReplaceAll(s, "'", escape) + "'"
-}
-
-// shellArg is s, quoted only if it holds anything but letters, digits and
-// _ . / - (paths from the repository can).
-func shellArg(s string) string {
-	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-") == "" {
-		return s
-	}
-	return shellQuote(s)
+// shellSafe reports whether s can be pasted into a POSIX shell, PowerShell
+// or cmd.exe as one plain argument: letters, digits and _ . / - only, and
+// not starting with -. Quoting differs between those shells (cmd.exe has
+// no single quotes at all), so paths from a repository that need quoting
+// are listed instead of offered as a command.
+func shellSafe(s string) bool {
+	return s != "" && s[0] != '-' && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./-") == ""
 }
