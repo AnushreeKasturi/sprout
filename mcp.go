@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // MCP (Model Context Protocol) server over stdio: newline-delimited
@@ -263,31 +264,117 @@ func serveMCP(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintf(errOut, "sprout mcp: %s isn't a project; tools will refuse it until the client names its open folder or you pass a path: sprout mcp /path/to/project\n", root)
 	}
 
-	sc := bufio.NewScanner(in)
-	sc.Buffer(make([]byte, 0, 64*1024), 10<<20)
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
-		if len(line) == 0 {
-			continue
+	return s.run(readLines(in))
+}
+
+// readLines sends each trimmed line of in, on its own goroutine, so tool
+// calls can wait briefly for the client to say which folder is open.
+func readLines(in io.Reader) <-chan []byte {
+	lines := make(chan []byte)
+	go func() {
+		sc := bufio.NewScanner(in)
+		sc.Buffer(make([]byte, 0, 64*1024), 10<<20)
+		for sc.Scan() {
+			lines <- bytes.Clone(bytes.TrimSpace(sc.Bytes()))
 		}
-		var msg struct {
-			rpcRequest
-			Result json.RawMessage `json:"result"`
+		close(lines)
+	}()
+	return lines
+}
+
+// run answers the client until its input ends, and returns an exit code.
+func (s *mcpConn) run(lines <-chan []byte) int {
+	var timeout <-chan time.Time
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				return s.flush() // end of input: answer what's waiting
+			}
+			if s.handle(line) != nil {
+				return 1
+			}
+			if len(s.pending) > 0 && timeout == nil {
+				timeout = time.After(rootsWait)
+			}
+		case <-timeout:
+			timeout, s.answered = nil, s.asked // the client never said: go on as we are
+			if s.flush() != 0 {
+				return 1
+			}
 		}
-		if err := json.Unmarshal(line, &msg); err != nil {
-			s.enc.Encode(map[string]any{"jsonrpc": "2.0", "id": nil, "error": rpcError{-32700, "parse error"}})
-			continue
+	}
+}
+
+// rootsWait is how long tool calls wait for the client's open folder.
+const rootsWait = 3 * time.Second
+
+// handle acts on one line from the client.
+func (s *mcpConn) handle(line []byte) error {
+	if len(line) == 0 {
+		return nil
+	}
+	var msg struct {
+		rpcRequest
+		Result json.RawMessage `json:"result"`
+	}
+	if err := json.Unmarshal(line, &msg); err != nil {
+		return s.enc.Encode(map[string]any{"jsonrpc": "2.0", "id": nil, "error": rpcError{-32700, "parse error"}})
+	}
+	if msg.Method == "" {
+		s.takeRoots(msg.ID, msg.Result) // a response to our roots/list
+		if s.flush() != 0 {
+			return fmt.Errorf("writing a response")
 		}
-		if msg.Method == "" {
-			s.takeRoots(msg.ID, msg.Result) // a response to our roots/list
-			continue
-		}
-		if err := s.serve(msg.rpcRequest); err != nil {
+		return nil
+	}
+	if msg.Method == "tools/call" && s.asked > s.answered {
+		s.pending = append(s.pending, msg.rpcRequest) // answered once the open folder is known
+		return nil
+	}
+	return s.serve(msg.rpcRequest)
+}
+
+// flush answers the tool calls that waited for the open folder, once it's
+// known or no longer expected. It returns an exit code.
+func (s *mcpConn) flush() int {
+	if s.asked > s.answered {
+		return 0
+	}
+	for len(s.pending) > 0 {
+		req := s.pending[0]
+		s.pending = s.pending[1:]
+		if s.serve(req) != nil {
 			return 1
 		}
 	}
 	return 0
 }
+
+// runningSprout is the full path of this sprout, for configs: its PATH
+// entry when that is this same binary (Homebrew's bin link outlives
+// upgrades, the binary's own path is versioned), else the binary itself.
+func runningSprout() string {
+	self, err := os.Executable()
+	if err != nil {
+		return "sprout"
+	}
+	if resolved, err := filepath.EvalSymlinks(self); err == nil {
+		self = resolved
+	}
+	if onPath, err := exec.LookPath("sprout"); err == nil {
+		if abs, err := filepath.Abs(onPath); err == nil {
+			if resolved, err := filepath.EvalSymlinks(abs); err == nil && resolved == self {
+				return abs
+			}
+		}
+	}
+	return self
+}
+
+// mcpWords rewrites the CLI's flag names in output for agents, whose tools
+// take arguments: "raise --budget" means the budget argument over MCP.
+var mcpWords = strings.NewReplacer("--budget", "budget", "--all", "all")
 
 // printMCPConfig prints a client's setup for this sprout: args are the
 // client and, for clients that don't know the project, its folder.
@@ -297,22 +384,12 @@ func printMCPConfig(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "sprout mcp: --print-config needs a client:", clients)
 		return 2
 	}
-	// The PATH entry (Homebrew's bin link) outlives upgrades; the binary's
-	// own path is versioned. Desktop apps often lack PATH, so it's in full.
-	exe, err := exec.LookPath("sprout")
-	if err != nil {
-		if exe, err = os.Executable(); err != nil {
-			exe = "sprout"
-		}
-	}
-	if abs, err := filepath.Abs(exe); err == nil {
-		exe = abs
-	}
+	exe := runningSprout()
 	project := "."
 	if len(args) == 2 {
 		project = args[1]
 	}
-	project, err = filepath.Abs(project)
+	project, err := filepath.Abs(project)
 	if err != nil {
 		fmt.Fprintln(errOut, "sprout mcp:", err)
 		return 1
@@ -331,7 +408,7 @@ func printMCPConfig(args []string, out, errOut io.Writer) int {
 		fmt.Fprintf(out, "claude mcp add sprout -- %s mcp\n", exe)
 		return 0
 	case "cursor":
-		config, where = map[string]any{"mcpServers": map[string]any{"sprout": server(nil, "${workspaceFolder}")}}, ".cursor/mcp.json in your project, or ~/.cursor/mcp.json"
+		config, where = map[string]any{"mcpServers": map[string]any{"sprout": server(map[string]any{"type": "stdio"}, "${workspaceFolder}")}}, ".cursor/mcp.json in your project, or ~/.cursor/mcp.json"
 	case "vscode":
 		config, where = map[string]any{"servers": map[string]any{"sprout": server(map[string]any{"type": "stdio"}, "${workspaceFolder}")}}, ".vscode/mcp.json in your project"
 	case "claude-desktop":
@@ -350,9 +427,11 @@ func printMCPConfig(args []string, out, errOut io.Writer) int {
 // root was given, a client that supports MCP roots says which folder is open.
 type mcpConn struct {
 	root     string
-	explicit bool // given on the command line, or by the client
-	canRoots bool // the client answers roots/list
-	asked    int  // roots/list requests sent, with ids "roots-1", "roots-2"…
+	explicit bool         // given on the command line, or by the client
+	canRoots bool         // the client answers roots/list
+	asked    int          // roots/list requests sent, with ids "roots-1", "roots-2"…
+	answered int          // and how many of them were answered
+	pending  []rpcRequest // tool calls waiting for the answer
 	enc      *json.Encoder
 	errOut   io.Writer
 }
@@ -402,7 +481,11 @@ func (s *mcpConn) askRoots() {
 // takeRoots serves the first local folder from a roots/list answer.
 func (s *mcpConn) takeRoots(id, result json.RawMessage) {
 	var name string
-	if json.Unmarshal(id, &name) != nil || !strings.HasPrefix(name, "roots-") || s.explicit {
+	if json.Unmarshal(id, &name) != nil || !strings.HasPrefix(name, "roots-") {
+		return
+	}
+	s.answered++
+	if s.explicit {
 		return
 	}
 	var r struct {
@@ -537,7 +620,7 @@ func callTool(root string, tool mcpTool, raw json.RawMessage) (string, error) {
 			text += "\nNote: " + strings.ReplaceAll(note, dir, shown)
 		}
 	}
-	return text, nil
+	return mcpWords.Replace(text), nil
 }
 
 // budgetArgs adds --budget to args when the agent gave one; 0 or less is an
@@ -594,7 +677,7 @@ func callGraphTool(root string, tool mcpTool, a toolArgs) (string, error) {
 		msg := strings.ReplaceAll(errOut.String(), root+string(filepath.Separator), "")
 		return "", fmt.Errorf("%s", strings.TrimSpace(strings.ReplaceAll(msg, root, ".")))
 	}
-	return out.String(), nil
+	return mcpWords.Replace(out.String()), nil
 }
 
 func resolveRoot(root string) (string, error) {

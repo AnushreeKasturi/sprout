@@ -51,7 +51,7 @@ func runContext(args []string, root string, stdout, stderr io.Writer) int {
 	rel = filepath.ToSlash(rel)
 	id, ok := g.ID(rel)
 	if !ok {
-		fmt.Fprintf(stderr, "sprout: %s isn't in the dependency graph: Sprout reads Go, TypeScript/JavaScript, Python, Rust, Java and Kotlin, skipping ignored, vendored and very large files\n", rel)
+		fmt.Fprintln(stderr, "sprout:", notInGraph(rel))
 		return 1
 	}
 	src, _ := os.ReadFile(abs)

@@ -27,6 +27,8 @@ type impactResult struct {
 	Tests         []string   `json:"tests"`
 	GoPackages    []string   `json:"goTestPackages,omitempty"`
 	TestCommands  []testCmd  `json:"testCommands,omitempty"` // Python and JS/TS tests, by project
+
+	base string // with nothing uncommitted: the branch to suggest --diff against
 }
 
 // testCmd runs some of a change's tests: argv, run from Dir (relative to
@@ -58,31 +60,16 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Run 'sprout impact --help' for usage.")
 		return 2
 	}
-	modes := 0
-	for _, on := range []bool{*staged, *diff != "", *commit != "", len(files) > 0} {
-		if on {
-			modes++
-		}
-	}
-	if modes > 1 {
+	if count(*staged, *diff != "", *commit != "", len(files) > 0) > 1 {
 		fmt.Fprintln(stderr, "sprout: impact takes files, --staged, --diff or --commit, one at a time")
 		return 2
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintln(stderr, "sprout:", err)
-		return 1
-	}
-	start := cwd
-	if len(files) > 0 {
-		if start, err = filepath.Abs(files[0]); err != nil {
+	if root == "" {
+		if root, err = impactRoot(files); err != nil {
 			fmt.Fprintln(stderr, "sprout:", err)
 			return 1
 		}
-	}
-	if root == "" {
-		root = projectRoot(start)
 	}
 
 	// The changed paths, relative to root.
@@ -102,6 +89,11 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1
 	}
+	if len(files) == 0 && len(changed)+len(deleted) == 0 {
+		if repo, err := openRepo(root); err == nil {
+			res.base = repo.defaultBranch()
+		}
+	}
 	traceImpact(g, &res, root, changed, deleted, *depth)
 
 	if *asJSON {
@@ -112,6 +104,30 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	}
 	printImpact(stdout, g, res, *all)
 	return 0
+}
+
+// count is how many of on are true.
+func count(on ...bool) int {
+	n := 0
+	for _, b := range on {
+		if b {
+			n++
+		}
+	}
+	return n
+}
+
+// impactRoot is the project the change belongs to: around the first file
+// named, else around the current folder.
+func impactRoot(files []string) (string, error) {
+	start, err := os.Getwd()
+	if err == nil && len(files) > 0 {
+		start, err = filepath.Abs(files[0])
+	}
+	if err != nil {
+		return "", err
+	}
+	return projectRoot(start), nil
 }
 
 // parseFiles parses fs from args, with flags before, between or after any
@@ -134,6 +150,9 @@ func parseFiles(fs *flag.FlagSet, args []string) ([]string, error) {
 func namedChanges(root string, files []string) ([]string, error) {
 	var changed []string
 	for _, f := range files {
+		if url, ok := remoteURL(f); ok {
+			return nil, fmt.Errorf("impact works on a local checkout; clone it first (git clone %s), then run sprout impact inside", url)
+		}
 		abs, err := filepath.Abs(f)
 		if err == nil {
 			_, err = os.Stat(abs)
@@ -372,8 +391,10 @@ func printImpact(w io.Writer, g *Graph, res impactResult, all bool) {
 		default:
 			fmt.Fprintf(w, "Nothing changed (%s)\n", res.Source)
 		}
-		if res.Source == "uncommitted changes" {
-			fmt.Fprintln(w, "For this branch's changes: sprout impact --diff main...HEAD. For the last commit: --commit HEAD")
+		if res.Source == "uncommitted changes" && res.base != "" {
+			fmt.Fprintf(w, "For this branch's changes: sprout impact --diff %s...HEAD. For the last commit: --commit HEAD\n", res.base)
+		} else if res.Source == "uncommitted changes" {
+			fmt.Fprintln(w, "For the last commit: sprout impact --commit HEAD")
 		}
 		return
 	}

@@ -63,10 +63,7 @@ func TestImpactFromGit(t *testing.T) {
 	dir := impactRepo(t)
 	chdir(t, dir)
 
-	out, _, _ := runCLI(t, "impact")
-	if !strings.Contains(out, "Nothing changed (uncommitted changes)") || !strings.Contains(out, "sprout impact --diff main...HEAD") {
-		t.Errorf("clean tree:\n%s", out)
-	}
+	var out string
 
 	write(t, dir, "web/x.ts", "export const x = 2;\n")
 	write(t, dir, "README.md", "# changed\n")
@@ -217,5 +214,19 @@ func TestCommandLineSafety(t *testing.T) {
 	out, _, _ := runCLI(t, "impact", "app.py")
 	if strings.Contains(out, "pytest") || !strings.Contains(out, "  tests/test_a&b.py\n") {
 		t.Errorf("an unsafe test path should be listed, not put in a command:\n%s", out)
+	}
+}
+
+// With nothing uncommitted, impact suggests --diff against the branch the
+// repository actually uses.
+func TestImpactCleanTreeHint(t *testing.T) {
+	dir := impactRepo(t)
+	chdir(t, dir)
+	for _, branch := range []string{"master", "main"} {
+		git(t, dir, "branch", "-M", branch)
+		out, _, _ := runCLI(t, "impact")
+		if !strings.Contains(out, "Nothing changed (uncommitted changes)") || !strings.Contains(out, "sprout impact --diff "+branch+"...HEAD") {
+			t.Errorf("clean tree on %s:\n%s", branch, out)
+		}
 	}
 }

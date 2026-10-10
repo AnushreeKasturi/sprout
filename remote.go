@@ -82,9 +82,17 @@ func cloneRemote(url string, history bool, stderr io.Writer) (string, func(), er
 	// Credential helpers (gh auth setup-git, the macOS keychain) still sign
 	// in; git just doesn't stop to ask for a username nobody can type.
 	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	cmd.Stderr = stderr
+	var gitErr strings.Builder
+	cmd.Stderr = &gitErr
 	if err := cmd.Run(); err != nil {
 		cleanup()
+		// "could not read Username", "Repository not found": the message
+		// below says that, and what to do. Anything else, git says best.
+		for _, line := range strings.Split(strings.TrimSpace(gitErr.String()), "\n") {
+			if line != "" && !strings.Contains(line, "Username") && !strings.Contains(line, "not found") && !strings.Contains(line, "terminal prompts disabled") {
+				fmt.Fprintln(stderr, line)
+			}
+		}
 		return "", nil, fmt.Errorf("couldn't clone %s: the repository doesn't exist, is private, or can't be reached (for a private one, set up git credentials, e.g. gh auth setup-git)", url)
 	}
 	return dir, cleanup, nil

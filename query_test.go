@@ -106,7 +106,8 @@ func TestQueryErrors(t *testing.T) {
 		{[]string{"dependents", "a"}, 2, "dependents needs a file, and a is a folder (did you mean `sprout a --entry`?)"},
 		{[]string{"dependents", filepath.Join(dir, "a")}, 2, "dependents needs a file, and " + filepath.Join(dir, "a") + " is a folder"},
 		{[]string{"deps", filepath.Join(dir, "missing.go")}, 1, "no such file"},
-		{[]string{"dependents", filepath.Join(dir, "notes.txt")}, 1, "isn't in the dependency graph"},
+		{[]string{"dependents", filepath.Join(dir, "notes.txt")}, 1, "notes.txt isn't source code Sprout reads"},
+		{[]string{"deps", "github.com/owner/repo"}, 2, "works on a local checkout"},
 		{[]string{"deps", filepath.Join(dir, "a/a.go"), "--bogus"}, 2, ""},
 	} {
 		_, errOut, code := runCLI(t, c.args...)

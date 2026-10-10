@@ -24,6 +24,23 @@ func openRepo(dir string) (*gitRepo, error) {
 	return r, nil
 }
 
+// defaultBranch is what a branch is usually compared with: the remote's
+// default (origin/main, origin/master…), else a local main or master, or ""
+// when there's neither.
+func (r *gitRepo) defaultBranch() string {
+	if out, err := r.run("rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil {
+		if b := strings.TrimSpace(out); b != "" && b != "origin/HEAD" {
+			return b
+		}
+	}
+	for _, b := range []string{"main", "master"} {
+		if _, err := r.run("rev-parse", "--verify", "--quiet", "refs/heads/"+b); err == nil {
+			return b
+		}
+	}
+	return ""
+}
+
 func (r *gitRepo) run(args ...string) (string, error) {
 	// Never run a repository's fsmonitor hook: the repository may be untrusted.
 	out, err := exec.Command("git", append([]string{"-c", "core.fsmonitor=false", "-C", r.dir}, args...)...).Output()

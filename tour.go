@@ -316,12 +316,14 @@ func writeTourSummary(b *strings.Builder, r tourResult) {
 			langs = append(langs, p.Language)
 		}
 		manifests[p.Language] = append(manifests[p.Language], p.Manifest)
-		if !slices.Contains(managers[p.Language], p.PackageManager) {
-			managers[p.Language] = append(managers[p.Language], p.PackageManager)
+		for _, m := range strings.Split(p.PackageManager, "/") { // pip/poetry/uv and pip: pip once
+			if !slices.Contains(managers[p.Language], m) {
+				managers[p.Language] = append(managers[p.Language], m)
+			}
 		}
 	}
 	for _, l := range langs {
-		fmt.Fprintf(b, "Ecosystem: %s (%s; %s)\n", l, strings.Join(manifests[l], ", "), strings.Join(managers[l], ", "))
+		fmt.Fprintf(b, "Ecosystem: %s (%s; %s)\n", l, strings.Join(manifests[l], ", "), strings.Join(managers[l], "/"))
 	}
 	if langs := topLanguages(r.Languages, 6); langs != "" {
 		fmt.Fprintf(b, "Languages: %s\n", langs)

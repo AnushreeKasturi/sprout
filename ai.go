@@ -330,8 +330,11 @@ func readmeProse(r io.Reader) string {
 	lines := readmeLines(r)
 	item := "" // a list item, used only when there's no paragraph
 	for i, line := range lines {
-		if notProse(line) || i+1 < len(lines) && setextUnderline(lines[i+1]) {
-			continue // "Title" over "=====" is a heading too
+		if t := htmlTagline(line); t != "" {
+			return firstSentences(t, 200) // a centred <em>tagline</em> under the logo
+		}
+		if notProse(line) || i+1 < len(lines) && setextUnderline(lines[i+1]) || labelLink.MatchString(plainText(line)) {
+			continue // "Title" over "=====" is a heading too; "Documentation: URL" isn't prose
 		}
 		if listItem(line) {
 			if item == "" {
@@ -352,7 +355,30 @@ func readmeProse(r io.Reader) string {
 	return firstSentences(item, 200)
 }
 
-var htmlComment = regexp.MustCompile(`<!--.*?-->`)
+var (
+	htmlComment = regexp.MustCompile(`<!--.*?-->`)
+	htmlTag     = regexp.MustCompile(`<[^>]+>`)
+	labelLink   = regexp.MustCompile(`^[\w ]{1,30}:\s*(https?://|www\.)\S*$`)
+)
+
+// htmlTagline is the words of an HTML line that holds only words, like the
+// centred <em>tagline</em> many READMEs put under their logo. Markup,
+// images, links and one- or two-word titles give "".
+func htmlTagline(line string) string {
+	if !strings.HasPrefix(line, "<") {
+		return ""
+	}
+	for _, media := range []string{"<img", "<a ", "<source", "<picture", "<svg"} {
+		if strings.Contains(line, media) {
+			return ""
+		}
+	}
+	text := strings.Join(strings.Fields(html.UnescapeString(htmlTag.ReplaceAllString(line, " "))), " ")
+	if len(strings.Fields(text)) < 3 {
+		return ""
+	}
+	return text
+}
 
 // readmeLines is the opening 40 lines of a README, trimmed, with fenced code
 // blocks and HTML comments (inline or over several lines) blanked out.
@@ -473,7 +499,7 @@ func keyFiles(root *Node) (entries, config []string) {
 var lowValueDirs = map[string]bool{
 	"test": true, "tests": true, "testdata": true, "__tests__": true, "examples": true,
 	"example": true, "_examples": true, "tutorial": true, "tutorials": true, "samples": true,
-	"script": true, "scripts": true, "fixtures": true, "vendor": true, "third_party": true,
+	"script": true, "scripts": true, "docs_src": true, "fixtures": true, "vendor": true, "third_party": true,
 }
 
 func isTestPath(rel string) bool {
