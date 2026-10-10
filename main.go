@@ -231,6 +231,14 @@ func run(args []string, out, stderr io.Writer) int { // skipcq: GO-R1005 pre-exi
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 2
 	}
+	if f.depth < -1 {
+		fmt.Fprintln(stderr, "sprout: --depth must be -1 (unlimited) or more")
+		return 2
+	}
+	if f.budget < 1 {
+		fmt.Fprintln(stderr, "sprout: --budget must be at least 1")
+		return 2
+	}
 
 	var since time.Time
 	if f.within != "" {
@@ -275,7 +283,7 @@ func run(args []string, out, stderr io.Writer) int { // skipcq: GO-R1005 pre-exi
 		Stat:       f.json || f.stats || f.ai || f.entry,
 	}
 
-	tree, branch, err := load(path, opts, f.git, f.diff)
+	tree, branch, err := load(path, opts, f.git, f.diff, stderr)
 	if err == nil && f.churn {
 		err = addChurn(path, tree, f.since)
 	}
@@ -299,7 +307,11 @@ func run(args []string, out, stderr io.Writer) int { // skipcq: GO-R1005 pre-exi
 	}
 
 	if f.ai {
-		fmt.Fprint(stdout, AIMap(tree, path, f.budget))
+		m := AIMap(tree, path, f.budget)
+		if n := estimateTokens(m); n > f.budget {
+			fmt.Fprintf(stderr, "sprout: the smallest map of this project is about %d tokens, over --budget %d\n", n, f.budget)
+		}
+		fmt.Fprint(stdout, m)
 		return 0
 	}
 
@@ -316,11 +328,10 @@ func run(args []string, out, stderr io.Writer) int { // skipcq: GO-R1005 pre-exi
 		return 0
 	}
 
-	p := printer{w: stdout, color: useColor(out), sizes: f.size, si: f.si}
+	p := printer{w: stdout, color: useColor(out), sizes: f.size, si: f.si, fs: tree}
 	if f.links && isTerminal(out) { // never write escape codes into pipes
 		p.links = true
 		p.host, _ = os.Hostname()
-		p.fs = tree
 	}
 	if f.churn {
 		p.churnFiles, p.churnDirs = churnMax(tree.Root)
@@ -354,13 +365,19 @@ func addChurn(path string, t *Tree, since string) error {
 
 // load builds the tree for the requested mode: a filesystem walk, optionally
 // annotated with git status, or a tree of just the paths in a git diff.
-func load(path string, opts Options, gitStatus bool, diffRev string) (*Tree, string, error) {
+func load(path string, opts Options, gitStatus bool, diffRev string, stderr io.Writer) (*Tree, string, error) {
 	if !gitStatus && diffRev == "" {
 		t, err := BuildTree(path, opts)
 		return t, "", err
 	}
 
 	repo, err := openRepo(path)
+	if err != nil && diffRev == "" {
+		// --git has nothing to mark outside a repository; the tree still helps.
+		fmt.Fprintf(stderr, "sprout: %v; showing the tree without --git\n", err)
+		t, err := BuildTree(path, opts)
+		return t, "", err
+	}
 	if err != nil {
 		return nil, "", err
 	}

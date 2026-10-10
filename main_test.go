@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -50,5 +52,29 @@ func TestHelp(t *testing.T) {
 	_, errOut, code := runCLI(t, "--nope")
 	if code != 2 || !strings.Contains(errOut, "sprout --help") {
 		t.Errorf("unknown flag: exit %d, stderr %q", code, errOut)
+	}
+}
+
+func TestFlagLimits(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "main.go", "package main\n")
+	for _, args := range [][]string{{"--depth", "-3"}, {"--ai", "--budget", "0"}} {
+		if _, errOut, code := runCLI(t, append([]string{dir, "--no-config"}, args...)...); code != 2 || errOut == "" {
+			t.Errorf("%v: exit %d, %q", args, code, errOut)
+		}
+	}
+	if _, errOut, code := runCLI(t, dir, "--no-config", "--ai", "--budget", "5"); code != 0 || !strings.Contains(errOut, "over --budget 5") {
+		t.Errorf("a map over budget should say so: exit %d, %q", code, errOut)
+	}
+}
+
+func TestSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "real.md", "x")
+	if err := os.Symlink("real.md", filepath.Join(dir, "link.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if out, _, _ := runCLI(t, dir, "--no-config"); !strings.Contains(out, "link.md -> real.md") {
+		t.Errorf("symlink target missing:\n%s", out)
 	}
 }

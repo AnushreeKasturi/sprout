@@ -45,7 +45,7 @@ func TestImpactOfFiles(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	for _, want := range []string{"Impact of 1 changed file (files)", "Affected: 2 files, 1 directly", "b/b.go  uses a.Hello",
+	for _, want := range []string{"Impact of 1 file\n", "Affected: 2 files, 1 directly", "b/b.go  uses a.Hello",
 		"… and 1 more file through them", "Tests: 1 file, 1 Go package", "go test ./b"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)

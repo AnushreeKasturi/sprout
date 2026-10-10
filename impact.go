@@ -250,7 +250,11 @@ func printImpact(w io.Writer, g *Graph, res impactResult, all bool) {
 			direct++
 		}
 	}
-	fmt.Fprintf(w, "Impact of %s (%s)\n\n", plural(len(res.Changed), "changed file"), res.Source)
+	if res.Source == "files" {
+		fmt.Fprintf(w, "Impact of %s\n\n", plural(len(res.Changed), "file"))
+	} else {
+		fmt.Fprintf(w, "Impact of %s (%s)\n\n", plural(len(res.Changed), "changed file"), res.Source)
+	}
 	for _, c := range res.Changed {
 		fmt.Fprintf(w, "  %s\n", c)
 	}

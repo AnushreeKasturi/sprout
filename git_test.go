@@ -46,9 +46,17 @@ func TestGitStatusFromSubdir(t *testing.T) {
 	}
 }
 
+// --git has nothing to mark outside a repository, so it shows the tree and
+// says why; --diff can't do without one.
 func TestGitOutsideRepo(t *testing.T) {
-	if _, _, code := runCLI(t, t.TempDir(), "--git"); code != 1 {
-		t.Errorf("expected exit 1 outside a repo, got %d", code)
+	dir := t.TempDir()
+	write(t, dir, "a.txt", "x")
+	out, errOut, code := runCLI(t, dir, "--git", "--no-config")
+	if code != 0 || !strings.Contains(out, "a.txt") || !strings.Contains(errOut, "showing the tree without --git") {
+		t.Errorf("--git outside a repo: exit %d\n%s\n%s", code, out, errOut)
+	}
+	if _, _, code := runCLI(t, dir, "--diff", "main", "--no-config"); code != 1 {
+		t.Errorf("--diff outside a repo: exit %d, want 1", code)
 	}
 }
 

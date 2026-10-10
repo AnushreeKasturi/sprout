@@ -268,7 +268,7 @@ type printer struct {
 	si    bool
 	links bool   // OSC 8 hyperlinks on names
 	host  string // for file:// links
-	fs    *Tree  // for links: where nodes live on disk
+	fs    *Tree  // where nodes live on disk: for links and symlink targets
 
 	churnFiles, churnDirs int // --churn scale; 0 when off
 }
@@ -295,6 +295,18 @@ func (p printer) tree(node *Node, prefix string) {
 	}
 }
 
+// linkTarget is " -> target" for a symlink, as tree prints it.
+func (p printer) linkTarget(n *Node) string {
+	if !n.Special || p.fs == nil {
+		return ""
+	}
+	target, err := os.Readlink(p.fs.FSPath(n))
+	if err != nil {
+		return "" // a pipe, socket or device, not a link
+	}
+	return paint(p.color, dim, " -> "+target)
+}
+
 func (p printer) label(n *Node) string {
 	name := n.Name
 	switch {
@@ -308,6 +320,7 @@ func (p printer) label(n *Node) string {
 			name = hyperlink(name, path, p.host)
 		}
 	}
+	name += p.linkTarget(n)
 	if p.sizes && (n.Size > 0 || !n.IsDir) {
 		name += "  " + paint(p.color, cyan, humanSize(n.Size, p.si))
 	}

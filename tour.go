@@ -272,7 +272,7 @@ func writeTourSummary(b *strings.Builder, r tourResult) {
 	} else {
 		fmt.Fprintln(b, "Purpose: no readable README prose found.")
 	}
-	fmt.Fprintf(b, "%s, %s (%s ignored or skipped)\n", plural(r.Files, "file"), plural(r.Directories, "directory"), plural(r.Skipped, "entry"))
+	fmt.Fprintf(b, "%s, %s (%s ignored or skipped)\n", plural(r.Directories, "directory"), plural(r.Files, "file"), plural(r.Skipped, "entry"))
 	if len(r.Projects) == 0 {
 		fmt.Fprintln(b, "Ecosystems: no recognized root manifest found.")
 	}
