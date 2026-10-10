@@ -4,6 +4,7 @@
 
 [![CI](https://github.com/Sprout-DevLabs/sprout/actions/workflows/go.yml/badge.svg)](https://github.com/Sprout-DevLabs/sprout/actions/workflows/go.yml)
 [![Release](https://img.shields.io/github/v/release/Sprout-DevLabs/sprout)](https://github.com/Sprout-DevLabs/sprout/releases)
+[![GitHub stars](https://img.shields.io/github/stars/Sprout-DevLabs/sprout?style=flat&logo=github)](https://github.com/Sprout-DevLabs/sprout/stargazers)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![DeepSource](https://app.deepsource.com/gh/Sprout-DevLabs/sprout.svg/?label=active+issues&show_trend=true)](https://app.deepsource.com/gh/Sprout-DevLabs/sprout/)
 [![Go version](https://img.shields.io/github/go-mod/go-version/Sprout-DevLabs/sprout)](go.mod)
@@ -27,6 +28,7 @@ claude mcp add sprout -- sprout mcp   # give Claude Code the same map (other age
 
 One small binary, standard library only. Reads Go, TypeScript/JavaScript,
 Python, Rust, Java and Kotlin. 📖 [Docs](https://sprout-devlabs.github.io/sprout-web/docs/)
+· ⭐ If Sprout saves you or your agent some digging, [a star](https://github.com/Sprout-DevLabs/sprout/stargazers) helps others find it.
 
 ## Install
 
@@ -66,12 +68,14 @@ claude mcp add sprout -- sprout mcp
 **VS Code**: `.vscode/mcp.json` in your project:
 
 ```json
-{ "servers": { "sprout": { "type": "stdio", "command": "sprout", "args": ["mcp"] } } }
+{ "servers": { "sprout": { "type": "stdio", "command": "sprout", "args": ["mcp", "${workspaceFolder}"] } } }
 ```
 
-**Claude Desktop**: Settings → Developer → Edit Config. Desktop apps don't
-know your project or always your `PATH`, so give both in full (`which sprout`
-prints the first):
+**Claude Desktop**: Settings → Developer → Edit Config, which opens
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS or
+`%APPDATA%\Claude\claude_desktop_config.json` on Windows. Desktop apps don't
+know your project, and often can't find Homebrew's binaries on their own, so
+give both in full (`which sprout` prints the first):
 
 ```json
 { "mcpServers": { "sprout": { "command": "/opt/homebrew/bin/sprout", "args": ["mcp", "/path/to/your/project"] } } }
@@ -90,6 +94,18 @@ prints the first):
 
 Agents are told when each tool beats searching by hand. The server is read-only. Paths and file arguments are confined to the project,
 symlinks included, git arguments can't carry options, and it never clones.
+
+**If it doesn't work**
+
+- **No sprout tools show up:** restart the client after editing its config.
+  Run `sprout mcp` in a terminal; it should print `MCP server on stdio, root …`
+  and wait. "command not found" in the client's MCP log means it can't see
+  your `PATH`: use the full path from `which sprout`.
+- **The map is of the wrong folder,** or huge and slow: the server maps the
+  folder it was started in. Pass the project explicitly, as in the Cursor and
+  Claude Desktop examples.
+- **Stale results:** there are none to worry about. Every call reads the
+  disk again, so files your agent just wrote are in the next answer.
 
 ## `tour`: get oriented in one command
 
