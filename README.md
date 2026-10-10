@@ -202,7 +202,8 @@ Affected: 67 files, 8 directly
   … and 59 more files through them (--all lists them)
 
 Tests: 88 files, 67 Go packages
-  go test ./cmd/kube-controller-manager/app ./cmd/kube-controller-manager/app/options ./pkg/controller/garbagecollector ./pkg/controller/storageversionmigrator … +63 more (--all)
+  go test ./cmd/kube-controller-manager/app ./cmd/kube-controller-manager/app/options ./pkg/controller/garbagecollector ./pkg/controller/storageversionmigrator ./test/e2e ./test/integration/auth ./test/integration/clustertrustbundles ./test/integration/controllermanager ./test/integration/daemonset ./test/integration/disruption ./test/integration/dra ./test/integration/dra/all
+  (runs 12 of 67; --all prints the full command)
 ```
 
 ## `context`: before you edit a file

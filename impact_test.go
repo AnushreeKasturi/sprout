@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -169,8 +170,8 @@ func TestImpactTestCommands(t *testing.T) {
 
 	text, _, _ := runCLI(t, "impact", "backend/app/crud.py", "web/src/util.ts", "plain/lib.js")
 	for _, line := range []string{
-		"  (cd backend && python -m pytest tests/test_crud.py)",
-		"  (cd web && npx vitest run src/util.test.ts)",
+		"  in backend/:\n    python -m pytest tests/test_crud.py",
+		"  in web/:\n    npx vitest run src/util.test.ts",
 		"  plain/lib.test.js", // no runner: listed, not dropped
 	} {
 		if !strings.Contains(text, line+"\n") {
@@ -183,8 +184,19 @@ func TestImpactTestCommands(t *testing.T) {
 // every path is safe unquoted in any shell; otherwise the tests are listed.
 func TestCommandLineSafety(t *testing.T) {
 	safe := testCmd{Dir: "backend", Argv: []string{"python", "-m", "pytest", "tests/test_a.py"}, runner: 3}
-	if line, ok := commandLine(safe, false); !ok || line != "(cd backend && python -m pytest tests/test_a.py)" {
-		t.Errorf("safe command: %q %v", line, ok)
+	if lines, ok := commandLine(safe, false); !ok || !reflect.DeepEqual(lines, []string{"in backend/:", "  python -m pytest tests/test_a.py"}) {
+		t.Errorf("safe command: %q %v", lines, ok)
+	}
+	// Past 12 files the note goes on its own line: the command stays valid.
+	many := testCmd{Dir: ".", Argv: []string{"npx", "jest"}, runner: 2}
+	for i := 0; i < 15; i++ {
+		many.Argv = append(many.Argv, fmt.Sprintf("t%d.test.js", i))
+	}
+	if lines, _ := commandLine(many, false); len(lines) != 2 || strings.Count(lines[0], ".test.js") != 12 || lines[1] != "(runs 12 of 15; --all prints the full command)" {
+		t.Errorf("truncated command: %q", lines)
+	}
+	if lines, _ := commandLine(many, true); len(lines) != 1 || strings.Count(lines[0], ".test.js") != 15 {
+		t.Errorf("--all command: %q", lines)
 	}
 	for _, bad := range []testCmd{
 		{Dir: ".", Argv: []string{"python", "-m", "pytest", "tests/it's $(x).py"}, runner: 3},
@@ -192,8 +204,8 @@ func TestCommandLineSafety(t *testing.T) {
 		{Dir: "my app", Argv: []string{"npx", "jest", "a.test.js"}, runner: 2},
 		{Dir: ".", Argv: []string{"npx", "jest", "--config=evil.js"}, runner: 2}, // read as an option
 	} {
-		if line, ok := commandLine(bad, false); ok {
-			t.Errorf("unsafe command offered: %s", line)
+		if lines, ok := commandLine(bad, false); ok {
+			t.Errorf("unsafe command offered: %s", lines)
 		}
 	}
 

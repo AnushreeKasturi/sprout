@@ -433,26 +433,39 @@ func printAffected(w io.Writer, g *Graph, code []queryHit, direct int, all bool)
 	}
 }
 
-// commandLine is c ready to paste: run from its folder, with at most 12
-// files unless all. ok is false when a path isn't shellSafe; the tests are
-// then listed by name, and --json still has the command as an argv.
-func commandLine(c testCmd, all bool) (line string, ok bool) {
+// commandLine is c ready to paste, with at most 12 files unless all; any
+// note about the rest goes on its own line, so the command stays valid.
+// The folder to run it from goes on a line before it: "cd dir &&" isn't
+// valid in Windows PowerShell 5.1. ok is false when a path isn't shellSafe;
+// the tests are then listed by name, and --json still has the argv.
+func commandLine(c testCmd, all bool) (lines []string, ok bool) {
 	for _, a := range append([]string{c.Dir}, c.Argv[c.runner:]...) {
 		if !shellSafe(a) {
-			return "", false
+			return nil, false
 		}
 	}
 	runner, files := c.Argv[:c.runner], c.Argv[c.runner:]
-	more := ""
-	if len(files) > 12 && !all {
-		more = fmt.Sprintf(" … +%d more (--all)", len(files)-12)
+	total := len(files)
+	if total > 12 && !all {
 		files = files[:12]
 	}
-	line = strings.Join(append(append([]string{}, runner...), files...), " ")
+	indent := ""
 	if c.Dir != "." {
-		line = "(cd " + c.Dir + " && " + line + ")"
+		lines = append(lines, "in "+c.Dir+"/:")
+		indent = "  "
 	}
-	return line + more, true
+	lines = append(lines, indent+strings.Join(append(append([]string{}, runner...), files...), " "))
+	if len(files) < total {
+		lines = append(lines, fmt.Sprintf("%s(runs %d of %d; --all prints the full command)", indent, len(files), total))
+	}
+	return lines, true
+}
+
+// printCommand writes lines from commandLine, indented under Tests.
+func printCommand(w io.Writer, lines []string) {
+	for _, l := range lines {
+		fmt.Fprintf(w, "  %s\n", l)
+	}
 }
 
 // printImpactTests lists the tests that reach a change: a go test command
@@ -465,15 +478,15 @@ func printImpactTests(w io.Writer, res impactResult, all bool) {
 	}
 	fmt.Fprintln(w)
 	covered := map[string]bool{}
-	if line, ok := commandLine(testCmd{".", append([]string{"go", "test"}, res.GoPackages...), 2}, all); ok && len(res.GoPackages) > 0 {
-		fmt.Fprintf(w, "  %s\n", line)
+	if lines, ok := commandLine(testCmd{".", append([]string{"go", "test"}, res.GoPackages...), 2}, all); ok && len(res.GoPackages) > 0 {
+		printCommand(w, lines)
 		for _, t := range res.Tests {
 			covered[t] = strings.HasSuffix(t, "_test.go")
 		}
 	}
 	for _, c := range res.TestCommands {
-		if line, ok := commandLine(c, all); ok {
-			fmt.Fprintf(w, "  %s\n", line)
+		if lines, ok := commandLine(c, all); ok {
+			printCommand(w, lines)
 			for _, f := range c.Argv[c.runner:] {
 				covered[path.Join(c.Dir, f)] = true
 			}
