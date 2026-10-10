@@ -91,6 +91,7 @@ func TestQueryJSON(t *testing.T) {
 
 func TestQueryErrors(t *testing.T) {
 	dir := queryRepo(t)
+	chdir(t, dir)
 	write(t, dir, "notes.txt", "hello\n")
 	for _, c := range []struct {
 		args []string
@@ -98,6 +99,12 @@ func TestQueryErrors(t *testing.T) {
 		msg  string
 	}{
 		{[]string{"deps"}, 2, "needs a file"},
+		{[]string{"deps", "."}, 2, "deps needs a file, and . is a folder (did you mean `sprout . --entry`?)"},
+		{[]string{"deps", "a"}, 2, "deps needs a file, and a is a folder (did you mean `sprout a --entry`?)"},
+		{[]string{"deps", filepath.Join(dir, "a")}, 2, "deps needs a file, and " + filepath.Join(dir, "a") + " is a folder"},
+		{[]string{"dependents", "."}, 2, "dependents needs a file, and . is a folder (did you mean `sprout . --entry`?)"},
+		{[]string{"dependents", "a"}, 2, "dependents needs a file, and a is a folder (did you mean `sprout a --entry`?)"},
+		{[]string{"dependents", filepath.Join(dir, "a")}, 2, "dependents needs a file, and " + filepath.Join(dir, "a") + " is a folder"},
 		{[]string{"deps", filepath.Join(dir, "missing.go")}, 1, "no such file"},
 		{[]string{"dependents", filepath.Join(dir, "notes.txt")}, 1, "isn't in the dependency graph"},
 		{[]string{"deps", filepath.Join(dir, "a/a.go"), "--bogus"}, 2, ""},

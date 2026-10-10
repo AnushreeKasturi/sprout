@@ -80,3 +80,15 @@ func TestUsedSymbols(t *testing.T) {
 		t.Errorf("by word: %q", got)
 	}
 }
+
+func TestContextErrors(t *testing.T) {
+	dir := queryRepo(t)
+	chdir(t, dir)
+	for _, arg := range []string{".", "a", filepath.Join(dir, "a")} {
+		out, errOut, code := runCLI(t, "context", arg)
+		want := "sprout: context needs a file, and " + arg + " is a folder (did you mean `sprout " + arg + " --entry`?)\n"
+		if code != 2 || errOut != want || out != "" {
+			t.Errorf("context %s: exit %d, stdout %q, stderr %q; want exit 2, empty stdout, stderr %q", arg, code, out, errOut, want)
+		}
+	}
+}

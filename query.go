@@ -51,14 +51,10 @@ func runQuery(cmd string, args []string, root string, stdout, stderr io.Writer) 
 		fmt.Fprintf(stderr, "Run 'sprout %s --help' for usage.\n", cmd)
 		return 2
 	}
-	if arg == "." {
-		fmt.Fprintf(stderr, "sprout: %s needs a file, e.g. sprout %s main.go\n", cmd, cmd)
-		return 2
-	}
-
 	abs, err := filepath.Abs(arg)
+	var info os.FileInfo
 	if err == nil {
-		_, err = os.Stat(abs)
+		info, err = os.Stat(abs)
 	}
 	if os.IsNotExist(err) {
 		fmt.Fprintf(stderr, "sprout: %s: no such file\n", arg)
@@ -67,6 +63,10 @@ func runQuery(cmd string, args []string, root string, stdout, stderr io.Writer) 
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1
+	}
+	if info.IsDir() {
+		fmt.Fprintf(stderr, "sprout: %s needs a file, and %s is a folder (did you mean `sprout %s --entry`?)\n", cmd, arg, arg)
+		return 2
 	}
 	if root == "" {
 		root = projectRoot(abs)
