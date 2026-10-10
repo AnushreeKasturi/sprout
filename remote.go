@@ -79,10 +79,13 @@ func cloneRemote(url string, history bool, stderr io.Writer) (string, func(), er
 	}
 	fmt.Fprintf(stderr, "sprout: cloning %s\n", url)
 	cmd := exec.Command("git", append(args, "--", url, dir)...) // "--": the URL can't be read as an option
-	cmd.Stdin, cmd.Stderr = os.Stdin, stderr                    // lets git ask for credentials
+	// Credential helpers (gh auth setup-git, the macOS keychain) still sign
+	// in; git just doesn't stop to ask for a username nobody can type.
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Stderr = stderr
 	if err := cmd.Run(); err != nil {
 		cleanup()
-		return "", nil, fmt.Errorf("couldn't clone %s: %v", url, err)
+		return "", nil, fmt.Errorf("couldn't clone %s: the repository doesn't exist, is private, or can't be reached (for a private one, set up git credentials, e.g. gh auth setup-git)", url)
 	}
 	return dir, cleanup, nil
 }
