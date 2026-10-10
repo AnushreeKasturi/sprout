@@ -26,6 +26,15 @@ type impactResult struct {
 	Affected      []queryHit `json:"affected"`
 	Tests         []string   `json:"tests"`
 	GoPackages    []string   `json:"goTestPackages,omitempty"`
+	TestCommands  []testCmd  `json:"testCommands,omitempty"` // Python and JS/TS tests, by project
+}
+
+// testCmd runs some of a change's tests: argv, run from Dir (relative to
+// the root, "." for the root itself).
+type testCmd struct {
+	Dir    string   `json:"dir"`
+	Argv   []string `json:"argv"`
+	runner int      // Argv[:runner] is the runner, the rest test files
 }
 
 // runImpact runs impact. root is the project root; "" finds it from the
@@ -40,21 +49,14 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	depth := fs.Int("depth", -1, "how many hops of dependents to follow (-1 for all)")
 	all := fs.Bool("all", false, "list every affected file, not just direct dependents")
 	asJSON := fs.Bool("json", false, "print JSON")
-	var files []string
-	for {
-		if err := fs.Parse(args); err != nil {
-			if err == flag.ErrHelp {
-				fmt.Fprint(stdout, "Usage: sprout impact [FILE...] [--staged | --diff REV | --commit REV] [--depth N] [--all] [--json]\n\nWith no files, the uncommitted changes, untracked files included.\n")
-				return 0
-			}
-			fmt.Fprintln(stderr, "Run 'sprout impact --help' for usage.")
-			return 2
-		}
-		if fs.NArg() == 0 {
-			break
-		}
-		files = append(files, fs.Arg(0))
-		args = fs.Args()[1:]
+	files, err := parseFiles(fs, args)
+	if err == flag.ErrHelp {
+		fmt.Fprint(stdout, "Usage: sprout impact [FILE...] [--staged | --diff REV | --commit REV] [--depth N] [--all] [--json]\n\nWith no files, the uncommitted changes, untracked files included.\n")
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "Run 'sprout impact --help' for usage.")
+		return 2
 	}
 	modes := 0
 	for _, on := range []bool{*staged, *diff != "", *commit != "", len(files) > 0} {
@@ -84,67 +86,112 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	}
 
 	// The changed paths, relative to root.
+	res := impactResult{SchemaVersion: 1, Command: "impact", Source: "files"}
 	var changed, deleted []string
-	res := impactResult{SchemaVersion: 1, Command: "impact"}
 	if len(files) > 0 {
-		res.Source = "files"
-		for _, f := range files {
-			abs, err := filepath.Abs(f)
-			if err == nil {
-				_, err = os.Stat(abs)
-			}
-			if err != nil {
-				fmt.Fprintf(stderr, "sprout: %s: no such file\n", f)
-				return 1
-			}
-			rel, _ := filepath.Rel(root, abs)
-			changed = append(changed, filepath.ToSlash(rel))
-		}
+		changed, err = namedChanges(root, files)
 	} else {
-		repo, err := openRepo(root)
-		if err != nil {
-			fmt.Fprintln(stderr, "sprout:", err)
-			return 1
-		}
-		var codes map[string]string
-		switch {
-		case *staged:
-			res.Source = "staged changes"
-			codes, err = repo.staged()
-		case *diff != "":
-			res.Source = "diff " + *diff
-			codes, err = repo.changedIn(*diff)
-		case *commit != "":
-			res.Source = "commit " + *commit
-			if strings.HasPrefix(*commit, "-") {
-				err = fmt.Errorf("invalid revision %q", *commit)
-			} else {
-				codes, err = repo.changedIn(*commit + "^!")
-			}
-		default:
-			res.Source = "uncommitted changes"
-			codes, err = repo.status()
-		}
-		if err != nil {
-			fmt.Fprintln(stderr, "sprout:", err)
-			return 1
-		}
-		for rel, code := range codes {
-			if code == "D" {
-				deleted = append(deleted, rel)
-			} else {
-				changed = append(changed, rel)
-			}
-		}
+		res.Source, changed, deleted, err = gitChanges(root, *staged, *diff, *commit)
 	}
-	sort.Strings(changed)
-	sort.Strings(deleted)
-
+	if err != nil {
+		fmt.Fprintln(stderr, "sprout:", err)
+		return 1
+	}
 	g, err := projectGraph(root, false)
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout:", err)
 		return 1
 	}
+	traceImpact(g, &res, root, changed, deleted, *depth)
+
+	if *asJSON {
+		explain(g, res.Affected, true)
+		data, _ := json.Marshal(res)
+		fmt.Fprintf(stdout, "%s\n", data)
+		return 0
+	}
+	printImpact(stdout, g, res, *all)
+	return 0
+}
+
+// parseFiles parses fs from args, with flags before, between or after any
+// number of files.
+func parseFiles(fs *flag.FlagSet, args []string) ([]string, error) {
+	var files []string
+	for {
+		if err := fs.Parse(args); err != nil {
+			return nil, err
+		}
+		if fs.NArg() == 0 {
+			return files, nil
+		}
+		files = append(files, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
+}
+
+// namedChanges is files as paths relative to root; each must exist.
+func namedChanges(root string, files []string) ([]string, error) {
+	var changed []string
+	for _, f := range files {
+		abs, err := filepath.Abs(f)
+		if err == nil {
+			_, err = os.Stat(abs)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("%s: no such file", f)
+		}
+		rel, _ := filepath.Rel(root, abs)
+		changed = append(changed, filepath.ToSlash(rel))
+	}
+	sort.Strings(changed)
+	return changed, nil
+}
+
+// gitChanges is what changed according to git: the staged changes, a
+// revision range, one commit, or by default everything uncommitted.
+func gitChanges(root string, staged bool, diff, commit string) (source string, changed, deleted []string, err error) {
+	repo, err := openRepo(root)
+	if err != nil {
+		return "", nil, nil, err
+	}
+	var codes map[string]string
+	switch {
+	case staged:
+		source = "staged changes"
+		codes, err = repo.staged()
+	case diff != "":
+		source = "diff " + diff
+		codes, err = repo.changedIn(diff)
+	case commit != "":
+		source = "commit " + commit
+		if strings.HasPrefix(commit, "-") {
+			err = fmt.Errorf("invalid revision %q", commit)
+		} else {
+			codes, err = repo.changedIn(commit + "^!")
+		}
+	default:
+		source = "uncommitted changes"
+		codes, err = repo.status()
+	}
+	if err != nil {
+		return "", nil, nil, err
+	}
+	for rel, code := range codes {
+		if code == "D" {
+			deleted = append(deleted, rel)
+		} else {
+			changed = append(changed, rel)
+		}
+	}
+	sort.Strings(changed)
+	sort.Strings(deleted)
+	return source, changed, deleted, nil
+}
+
+// traceImpact fills res from the changed files: what's in the graph, what
+// depends on it, and the tests that reach it, with commands to run them.
+func traceImpact(g *Graph, res *impactResult, root string, changed, deleted []string, depth int) {
 	var ids []FileID
 	res.Changed, res.Deleted = []string{}, deleted
 	for _, rel := range changed {
@@ -155,7 +202,7 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 			res.Untracked = append(res.Untracked, rel)
 		}
 	}
-	res.Affected = follow(g, ids, true, *depth, false)
+	res.Affected = follow(g, ids, true, depth, false)
 
 	// Tests: the changed tests themselves, and every test that reaches a change.
 	tests := map[string]bool{}
@@ -171,15 +218,7 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	}
 	res.Tests = sortedKeys(tests)
 	res.GoPackages = goTestPackages(res.Tests)
-
-	if *asJSON {
-		explain(g, res.Affected, true)
-		data, _ := json.Marshal(res)
-		fmt.Fprintf(stdout, "%s\n", data)
-		return 0
-	}
-	printImpact(stdout, g, res, *all)
-	return 0
+	res.TestCommands = testCommands(root, res.Tests)
 }
 
 // runnableTest reports whether a test file is one you run, rather than a
@@ -194,6 +233,102 @@ func runnableTest(f GraphFile) bool {
 		return strings.HasPrefix(base, "test_") || strings.HasSuffix(base, "_test.py")
 	}
 	return true
+}
+
+var pyProjectFiles = []string{"pyproject.toml", "setup.cfg", "tox.ini", "pytest.ini", "setup.py"}
+
+// testCommands groups Python and JS/TS tests by the project they belong to,
+// the nearest folder with a Python project file or package.json, and builds
+// that project's test command when its runner is recognisable: pytest,
+// vitest or jest. Tests with no recognisable runner aren't given one.
+func testCommands(root string, tests []string) []testCmd {
+	runners := map[string][]string{} // "lang dir" -> runner, read once
+	var cmds []testCmd
+	index := map[string]int{} // "dir runner" -> its command in cmds
+	for _, t := range tests {
+		lang := langOf(path.Base(t))
+		if lang != "py" && lang != "js" {
+			continue
+		}
+		names := pyProjectFiles
+		if lang == "js" {
+			names = []string{"package.json"}
+		}
+		dir := nearestWith(root, path.Dir(t), names)
+		key := lang + " " + dir
+		runner, ok := runners[key]
+		if !ok {
+			runner = testRunner(root, dir, lang)
+			runners[key] = runner
+		}
+		if runner == nil {
+			continue
+		}
+		k := dir + " " + strings.Join(runner, " ")
+		if _, ok := index[k]; !ok {
+			index[k] = len(cmds)
+			cmds = append(cmds, testCmd{dir, append([]string{}, runner...), len(runner)})
+		}
+		rel := t
+		if dir != "." {
+			rel = strings.TrimPrefix(t, dir+"/")
+		}
+		cmds[index[k]].Argv = append(cmds[index[k]].Argv, rel)
+	}
+	return cmds
+}
+
+// nearestWith is the closest folder from dir up to the root holding one of
+// names, or "" if none does.
+func nearestWith(root, dir string, names []string) string {
+	for {
+		for _, n := range names {
+			if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(dir), n)); err == nil {
+				return dir
+			}
+		}
+		if dir == "." || dir == "/" || dir == "" {
+			return ""
+		}
+		dir = path.Dir(dir)
+	}
+}
+
+// testRunner is the test command of the project in dir, or nil: pytest when
+// its project files or a conftest.py mention it, vitest or jest when
+// package.json depends on them (or ava, or mocha).
+func testRunner(root, dir, lang string) []string {
+	if dir == "" {
+		return nil
+	}
+	read := func(name string) string {
+		data, _ := os.ReadFile(filepath.Join(root, filepath.FromSlash(dir), name))
+		return string(data)
+	}
+	if lang == "py" {
+		for _, n := range append([]string{"conftest.py"}, pyProjectFiles...) {
+			if text := read(n); n == "conftest.py" && text != "" || strings.Contains(text, "pytest") {
+				return []string{"python", "-m", "pytest"}
+			}
+		}
+		return nil
+	}
+	var pkg struct{ Dependencies, DevDependencies map[string]any }
+	if json.Unmarshal([]byte(read("package.json")), &pkg) != nil {
+		return nil
+	}
+	has := func(name string) bool { return pkg.Dependencies[name] != nil || pkg.DevDependencies[name] != nil }
+	switch {
+	case has("vitest"):
+		return []string{"npx", "vitest", "run"}
+	case has("jest"):
+		return []string{"npx", "jest"}
+	case has("ava"):
+		return []string{"npx", "ava"}
+	case has("mocha"):
+		return []string{"npx", "mocha"}
+	}
+	return nil
 }
 
 // projectGraph builds the dependency graph of root, tests included; with
@@ -298,8 +433,29 @@ func printAffected(w io.Writer, g *Graph, code []queryHit, direct int, all bool)
 	}
 }
 
+// commandLine is c ready to paste: quoted, run from its folder, and with
+// at most 12 files unless all.
+func commandLine(c testCmd, all bool) string {
+	runner, files := c.Argv[:c.runner], c.Argv[c.runner:]
+	more := ""
+	if len(files) > 12 && !all {
+		more = fmt.Sprintf(" … +%d more (--all)", len(files)-12)
+		files = files[:12]
+	}
+	parts := append([]string{}, runner...)
+	for _, f := range files {
+		parts = append(parts, shellArg(f))
+	}
+	line := strings.Join(parts, " ")
+	if c.Dir != "." {
+		line = "(cd " + shellArg(c.Dir) + " && " + line + ")"
+	}
+	return line + more
+}
+
 // printImpactTests lists the tests that reach a change: a go test command
-// for Go packages, and the other test files by name.
+// for Go packages, pytest, vitest or jest commands where the project uses
+// them, and the other test files by name.
 func printImpactTests(w io.Writer, res impactResult, all bool) {
 	fmt.Fprintf(w, "\nTests: %s", plural(len(res.Tests), "file"))
 	if len(res.GoPackages) > 0 {
@@ -307,17 +463,18 @@ func printImpactTests(w io.Writer, res impactResult, all bool) {
 	}
 	fmt.Fprintln(w)
 	if len(res.GoPackages) > 0 {
-		pkgs := res.GoPackages
-		more := ""
-		if len(pkgs) > 12 && !all {
-			more = fmt.Sprintf(" … +%d more (--all)", len(pkgs)-12)
-			pkgs = pkgs[:12]
+		fmt.Fprintf(w, "  %s\n", commandLine(testCmd{".", append([]string{"go", "test"}, res.GoPackages...), 2}, all))
+	}
+	covered := map[string]bool{}
+	for _, c := range res.TestCommands {
+		fmt.Fprintf(w, "  %s\n", commandLine(c, all))
+		for _, f := range c.Argv[c.runner:] {
+			covered[path.Join(c.Dir, f)] = true
 		}
-		fmt.Fprintf(w, "  go test %s%s\n", strings.Join(pkgs, " "), more)
 	}
 	var other []string
 	for _, t := range res.Tests {
-		if !strings.HasSuffix(t, "_test.go") {
+		if !strings.HasSuffix(t, "_test.go") && !covered[t] {
 			other = append(other, t)
 		}
 	}

@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -132,5 +134,60 @@ func TestImpactListsRunnableTests(t *testing.T) {
 	}
 	if strings.Join(r.Tests, ",") != "tests/test_api.py" {
 		t.Errorf("tests = %v, want only tests/test_api.py (reached through the helper)", r.Tests)
+	}
+}
+
+// Python and JS/TS tests get their project's runner, run from the project's
+// folder; tests with no recognisable runner are just listed.
+func TestImpactTestCommands(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "backend/pyproject.toml", "[tool.pytest.ini_options]\ntestpaths = [\"tests\"]\n")
+	write(t, dir, "backend/app/crud.py", "def create(): pass\n")
+	write(t, dir, "backend/tests/test_crud.py", "from app.crud import create\n")
+	write(t, dir, "web/package.json", `{"devDependencies": {"vitest": "^3"}}`)
+	write(t, dir, "web/src/util.ts", "export const x = 1;\n")
+	write(t, dir, "web/src/util.test.ts", "import { x } from './util';\n")
+	write(t, dir, "plain/package.json", `{"name": "plain"}`)
+	write(t, dir, "plain/lib.js", "module.exports = 1;\n")
+	write(t, dir, "plain/lib.test.js", "require('./lib');\n")
+	chdir(t, dir)
+
+	out, errOut, code := runCLI(t, "impact", "backend/app/crud.py", "web/src/util.ts", "plain/lib.js", "--json")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var res impactResult
+	if err := json.Unmarshal([]byte(out), &res); err != nil {
+		t.Fatal(err)
+	}
+	want := []testCmd{
+		{Dir: "backend", Argv: []string{"python", "-m", "pytest", "tests/test_crud.py"}},
+		{Dir: "web", Argv: []string{"npx", "vitest", "run", "src/util.test.ts"}},
+	}
+	if !reflect.DeepEqual(res.TestCommands, want) {
+		t.Fatalf("test commands: %+v", res.TestCommands)
+	}
+
+	text, _, _ := runCLI(t, "impact", "backend/app/crud.py", "web/src/util.ts", "plain/lib.js")
+	for _, line := range []string{
+		"  (cd backend && python -m pytest tests/test_crud.py)",
+		"  (cd web && npx vitest run src/util.test.ts)",
+		"  plain/lib.test.js", // no runner: listed, not dropped
+	} {
+		if !strings.Contains(text, line+"\n") {
+			t.Errorf("missing %q in:\n%s", line, text)
+		}
+	}
+}
+
+// Test paths come from the repository: a command line quotes them.
+func TestCommandLineQuotes(t *testing.T) {
+	c := testCmd{Dir: "my app", Argv: []string{"python", "-m", "pytest", "tests/it's $(x).py"}, runner: 3}
+	got := commandLine(c, false)
+	if runtime.GOOS != "windows" {
+		want := `(cd 'my app' && python -m pytest 'tests/it'"'"'s $(x).py')`
+		if got != want {
+			t.Fatalf("got %s, want %s", got, want)
+		}
 	}
 }
