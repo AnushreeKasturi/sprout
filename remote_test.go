@@ -79,3 +79,33 @@ func TestMCPRefusesRemote(t *testing.T) {
 		t.Error("MCP must not clone remote repositories")
 	}
 }
+
+// tour works on a repository URL, and its next steps don't point into the
+// temporary clone, which is gone when tour ends.
+func TestTourRemote(t *testing.T) {
+	src := setupGitRepo(t)
+	write(t, src, "README.md", "A tiny project for testing tours.\n")
+	git(t, src, "add", "-A")
+	git(t, src, "commit", "-qm", "readme")
+	p := filepath.ToSlash(src)
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	url := "file://" + p
+
+	out, errOut, code := runCLI(t, "tour", url)
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	for _, want := range []string{"A tiny project for testing tours.", "Next:\n", "sprout " + url + " --ai", "git clone " + url} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "sprout context") || strings.Contains(out, filepath.Join(os.TempDir(), "sprout-")) {
+		t.Errorf("next steps point into the deleted clone:\n%s", out)
+	}
+	if _, errOut, code := runCLI(t, "tour", "file:///definitely/not/a/repo"); code != 1 || !strings.Contains(errOut, "couldn't clone") {
+		t.Errorf("bad clone: exit %d: %s", code, errOut)
+	}
+}

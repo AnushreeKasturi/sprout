@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -43,6 +44,7 @@ type tourResult struct {
 	OmittedLayout  int             `json:"omittedLayout"`
 	OmittedReading int             `json:"omittedReading"`
 	NextCommands   [][]string      `json:"nextCommands"`
+	Remote         string          `json:"remote,omitempty"` // the repository toured, when not a local folder
 	Caveats        []string        `json:"caveats"`
 }
 
@@ -54,7 +56,7 @@ func runTour(args []string, stdout, stderr io.Writer) int {
 	limit := fs.Int("limit", 8, "maximum reading steps and top-level directories (1-50)")
 	root, err := parseArgs(fs, args)
 	if err == flag.ErrHelp {
-		fmt.Fprint(stdout, "Usage: sprout tour [path] [--json] [--limit N]\n\nAn offline reading plan for a local directory (default .).\n--limit defaults to 8 (1-50); limits output, not analysis.\nLike graph subcommands, tour does not load tree-view config.\n")
+		fmt.Fprint(stdout, "Usage: sprout tour [path | github.com/owner/repo] [--json] [--limit N]\n\nA reading plan for a folder (default .) or a repository you haven't cloned.\n--limit defaults to 8 (1-50); limits output, not analysis.\nLike graph subcommands, tour does not load tree-view config.\n")
 		return 0
 	}
 	if err != nil {
@@ -65,22 +67,11 @@ func runTour(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "sprout: tour --limit must be between 1 and 50")
 		return 2
 	}
-	root, err = resolveRoot(root)
-	if err != nil {
-		fmt.Fprintln(stderr, "sprout: tour needs an existing local directory:", errReason(err))
-		return 1
+	root, remote, cloneURL, cleanup, code := tourRoot(root, stderr)
+	if code != 0 {
+		return code
 	}
-	info, err := os.Stat(root)
-	if err != nil || !info.IsDir() {
-		fmt.Fprintln(stderr, "sprout: tour needs a directory")
-		return 1
-	}
-	// BuildTree reads this file before walking. Do not follow a link or
-	// block on a FIFO supplied as an ignore file by an untrusted project.
-	if info, err := os.Lstat(filepath.Join(root, ".sproutignore")); err == nil && !info.Mode().IsRegular() {
-		fmt.Fprintln(stderr, "sprout: tour requires .sproutignore to be a regular file, not a link or special file")
-		return 1
-	}
+	defer cleanup()
 	tree, err := BuildTree(root, Options{MaxDepth: -1, ShowHidden: true, Stat: true})
 	if err != nil {
 		fmt.Fprintln(stderr, "sprout: cannot read tour directory:", errReason(err))
@@ -89,6 +80,12 @@ func runTour(args []string, stdout, stderr io.Writer) int {
 	visible := tourFiles(tree, tree.Root)
 	g := buildGraph(root, tree, false, false)
 	result := gatherTour(root, tree, g, visible, *limit)
+	if remote != "" {
+		// The clone is gone when tour ends: next steps work on the URL, or
+		// on a clone of your own.
+		result.Remote = remote
+		result.NextCommands = [][]string{{"sprout", remote, "--ai"}, {"sprout", remote, "-L", "2"}, {"git", "clone", cloneURL}}
+	}
 	if *asJSON {
 		err = json.NewEncoder(stdout).Encode(result)
 	} else {
@@ -99,6 +96,40 @@ func runTour(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// tourRoot is the folder to tour: arg itself, or a temporary clone when arg
+// is a repository URL (remote and cloneURL are set then; cleanup deletes
+// the clone). A non-zero code means it said why it can't.
+func tourRoot(arg string, stderr io.Writer) (root, remote, cloneURL string, cleanup func(), code int) {
+	cleanup = func() {}
+	root = arg
+	if url, ok := remoteURL(arg); ok {
+		dir, done, err := cloneRemote(url, false, stderr)
+		if err != nil {
+			fmt.Fprintln(stderr, "sprout:", err)
+			return "", "", "", cleanup, 1
+		}
+		root, remote, cloneURL, cleanup = dir, arg, url, done
+	}
+	fail := func(msg ...any) (string, string, string, func(), int) {
+		fmt.Fprintln(stderr, msg...)
+		cleanup()
+		return "", "", "", func() {}, 1
+	}
+	root, err := resolveRoot(root)
+	if err != nil {
+		return fail("sprout: tour needs an existing folder, or a repository like github.com/owner/repo:", errReason(err))
+	}
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return fail("sprout: tour needs a directory")
+	}
+	// BuildTree reads this file before walking. Do not follow a link or
+	// block on a FIFO supplied as an ignore file by an untrusted project.
+	if info, err := os.Lstat(filepath.Join(root, ".sproutignore")); err == nil && !info.Mode().IsRegular() {
+		return fail("sprout: tour requires .sproutignore to be a regular file, not a link or special file")
+	}
+	return root, remote, cloneURL, cleanup, 0
 }
 
 // tourFiles removes links and special files before any source or metadata
@@ -255,7 +286,7 @@ func printTour(w io.Writer, r tourResult) error {
 	writeTourSummary(&b, r)
 	writeTourLayout(&b, r)
 	writeTourReading(&b, r)
-	writeTourNext(&b, r.NextCommands)
+	writeTourNext(&b, r.NextCommands, r.Remote != "")
 	// The first two caveats hold for every tour; JSON keeps them for scripts.
 	fmt.Fprintln(&b, "\nNote: suggestions are heuristics from static analysis, not runtime behavior.")
 	for _, caveat := range r.Caveats[min(2, len(r.Caveats)):] {
@@ -276,8 +307,21 @@ func writeTourSummary(b *strings.Builder, r tourResult) {
 	if len(r.Projects) == 0 {
 		fmt.Fprintln(b, "Ecosystems: no recognized root manifest found.")
 	}
+	// One line per language: pyproject.toml and requirements.txt are one
+	// Python project, not two.
+	var langs []string
+	manifests, managers := map[string][]string{}, map[string][]string{}
 	for _, p := range r.Projects {
-		fmt.Fprintf(b, "Ecosystem: %s (%s; %s)\n", p.Language, p.Manifest, p.PackageManager)
+		if manifests[p.Language] == nil {
+			langs = append(langs, p.Language)
+		}
+		manifests[p.Language] = append(manifests[p.Language], p.Manifest)
+		if !slices.Contains(managers[p.Language], p.PackageManager) {
+			managers[p.Language] = append(managers[p.Language], p.PackageManager)
+		}
+	}
+	for _, l := range langs {
+		fmt.Fprintf(b, "Ecosystem: %s (%s; %s)\n", l, strings.Join(manifests[l], ", "), strings.Join(managers[l], ", "))
 	}
 	if langs := topLanguages(r.Languages, 6); langs != "" {
 		fmt.Fprintf(b, "Languages: %s\n", langs)
@@ -310,8 +354,12 @@ func writeTourReading(b *strings.Builder, r tourResult) {
 	}
 }
 
-func writeTourNext(b *strings.Builder, commands [][]string) {
-	fmt.Fprintln(b, "\nNext (run from the directory you toured; POSIX shell or PowerShell):")
+func writeTourNext(b *strings.Builder, commands [][]string, remote bool) {
+	if remote {
+		fmt.Fprintln(b, "\nNext:")
+	} else {
+		fmt.Fprintln(b, "\nNext (run from the directory you toured; POSIX shell or PowerShell):")
+	}
 	for _, argv := range commands {
 		// Only the context path is repository-controlled. A path that isn't
 		// safe in every shell gets no suggestion rather than a quoting that
@@ -323,7 +371,7 @@ func writeTourNext(b *strings.Builder, commands [][]string) {
 			}
 			parts[2] = "'" + parts[2] + "'"
 		}
-		fmt.Fprintf(b, "  %s\n", strings.Join(parts, " "))
+		fmt.Fprintf(b, "  %s\n", printable(strings.Join(parts, " ")))
 	}
 }
 
