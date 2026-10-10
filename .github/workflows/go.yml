@@ -20,3 +20,29 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go test -race ./...
+
+  completion-syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: sudo apt-get update && sudo apt-get install -y fish
+      - run: go build -o sprout .
+      - name: Generate fish and PowerShell completion scripts
+        run: |
+          ./sprout --completion fish > completion.fish
+          ./sprout --completion powershell > completion.ps1
+      - name: Check the fish script parses
+        run: fish --no-execute completion.fish
+      - name: Check the PowerShell script parses
+        shell: pwsh
+        run: |
+          $errors = $null
+          $path = (Resolve-Path ./completion.ps1).Path
+          [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$errors) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Host "::error::$($_.Message) ($($_.Extent.StartLineNumber))" }
+            exit 1
+          }
