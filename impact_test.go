@@ -63,10 +63,15 @@ func TestImpactFromGit(t *testing.T) {
 	dir := impactRepo(t)
 	chdir(t, dir)
 
-	out, _, _ := runCLI(t, "impact")
-	if !strings.Contains(out, "Nothing changed (uncommitted changes)") || !strings.Contains(out, "sprout impact --diff main...HEAD") {
-		t.Errorf("clean tree:\n%s", out)
+	// Nothing uncommitted: suggest the branch the repository actually uses.
+	for _, branch := range []string{"master", "main"} {
+		git(t, dir, "branch", "-M", branch)
+		out, _, _ := runCLI(t, "impact")
+		if !strings.Contains(out, "Nothing changed (uncommitted changes)") || !strings.Contains(out, "sprout impact --diff "+branch+"...HEAD") {
+			t.Errorf("clean tree on %s:\n%s", branch, out)
+		}
 	}
+	var out string
 
 	write(t, dir, "web/x.ts", "export const x = 2;\n")
 	write(t, dir, "README.md", "# changed\n")

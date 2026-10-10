@@ -36,11 +36,24 @@ type queryResult struct {
 
 // runQuery runs deps or dependents. root is the project root; "" finds it
 // from the file (the nearest .git above it).
+// notInGraph says why rel has no place in the dependency graph, and what to
+// try instead.
+func notInGraph(rel string) string {
+	if langOf(rel) == "" {
+		return rel + " isn't source code Sprout reads (Go, TypeScript/JavaScript, Python, Rust, Java, Kotlin). For an overview of the project, try sprout tour"
+	}
+	return rel + " isn't in the dependency graph: it's ignored, vendored or very large"
+}
+
 // fileArg resolves the FILE argument of deps, dependents and context to an
 // absolute path, or says what's wrong and returns the exit code: 2 for no
 // file or a folder, 1 for a file that isn't there. parseArgs gives "." when
 // there's no argument, so args tells that apart from a "." typed.
 func fileArg(cmd, arg string, args []string, stderr io.Writer) (string, int) {
+	if url, ok := remoteURL(arg); ok && arg != "." {
+		fmt.Fprintf(stderr, "sprout: %s works on a local checkout; clone it first (git clone %s), then run it inside\n", cmd, url)
+		return "", 2
+	}
 	if arg == "." && !slices.Contains(args, ".") {
 		fmt.Fprintf(stderr, "sprout: %s needs a file, e.g. sprout %s main.go\n", cmd, cmd)
 		return "", 2
@@ -96,7 +109,7 @@ func runQuery(cmd string, args []string, root string, stdout, stderr io.Writer) 
 	rel = filepath.ToSlash(rel)
 	id, ok := g.ID(rel)
 	if !ok {
-		fmt.Fprintf(stderr, "sprout: %s isn't in the dependency graph: Sprout reads Go, TypeScript/JavaScript, Python, Rust, Java and Kotlin, skipping ignored, vendored and very large files\n", rel)
+		fmt.Fprintln(stderr, "sprout:", notInGraph(rel))
 		return 1
 	}
 
