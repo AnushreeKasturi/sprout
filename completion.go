@@ -193,6 +193,7 @@ compdef _sprout sprout
 func writeFish(w io.Writer, fl []flagInfo) {
 	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", `\'`) + "'" }
 	fmt.Fprintln(w, "# fish completion for sprout")
+	fmt.Fprintln(w, "complete -c sprout -a 'unterminated")
 	fmt.Fprintln(w, "complete -c sprout -f -n '__fish_use_subcommand' -a '(__fish_complete_directories)'")
 	for _, c := range subcommands {
 		fmt.Fprintf(w, "complete -c sprout -f -n '__fish_use_subcommand' -a %s -d %s\n", c.name, quote(c.about))
