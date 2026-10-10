@@ -53,7 +53,7 @@ type mcpTool struct {
 
 type toolArgs struct {
 	Path   string `json:"path"`
-	Budget int    `json:"budget"`
+	Budget *int   `json:"budget"` // nil when not given
 	Depth  *int   `json:"depth"`
 	All    bool   `json:"all"`
 	Git    bool   `json:"git"`
@@ -88,11 +88,7 @@ var mcpTools = []mcpTool{
 			"budget": map[string]any{"type": "integer", "description": "Approximate token budget (default 2000)."},
 		}),
 		args: func(a toolArgs) ([]string, error) {
-			args := []string{"--ai"}
-			if a.Budget > 0 {
-				args = append(args, "--budget", strconv.Itoa(a.Budget))
-			}
-			return args, nil
+			return budgetArgs([]string{"--ai"}, a.Budget)
 		},
 	},
 	{
@@ -218,11 +214,7 @@ var graphTools = []mcpTool{
 			"budget": map[string]any{"type": "integer", "description": "Approximate token budget (default 1500)."},
 		}),
 		args: func(a toolArgs) ([]string, error) {
-			args := []string{a.File}
-			if a.Budget > 0 {
-				args = append(args, "--budget", strconv.Itoa(a.Budget))
-			}
-			return args, nil
+			return budgetArgs([]string{a.File}, a.Budget)
 		},
 		run: runContext,
 	},
@@ -371,8 +363,21 @@ func callTool(root string, tool mcpTool, raw json.RawMessage) (string, error) {
 	return strings.Replace(out.String(), dir, shown, 1), nil
 }
 
+// budgetArgs adds --budget to args when the agent gave one; 0 or less is an
+// error rather than quietly the default.
+func budgetArgs(args []string, budget *int) ([]string, error) {
+	if budget == nil {
+		return args, nil
+	}
+	if *budget < 1 {
+		return nil, fmt.Errorf("budget must be at least 1")
+	}
+	return append(args, "--budget", strconv.Itoa(*budget)), nil
+}
+
 // callGraphTool confines every file argument to the root, then runs the
-// tool's subcommand against the root.
+// tool's subcommand against the root. Errors name paths relative to the
+// root: the agent doesn't need to learn where the server runs.
 func callGraphTool(root string, tool mcpTool, a toolArgs) (string, error) {
 	if tool.Name != "impact" && a.File == "" {
 		return "", fmt.Errorf("file is required")
@@ -385,8 +390,12 @@ func callGraphTool(root string, tool mcpTool, a toolArgs) (string, error) {
 	}
 	var err error
 	if a.File != "" {
+		given := a.File
 		if a.File, err = confineFile(a.File); err != nil {
 			return "", err
+		}
+		if info, err := os.Stat(a.File); err == nil && info.IsDir() {
+			return "", fmt.Errorf("%s is a folder; %s needs a file (for where to start in a folder, call reading_order)", given, tool.Name)
 		}
 	}
 	for i, f := range a.Files {
@@ -405,7 +414,8 @@ func callGraphTool(root string, tool mcpTool, a toolArgs) (string, error) {
 	}
 	var out, errOut bytes.Buffer
 	if code := tool.run(args, root, &out, &errOut); code != 0 {
-		return "", fmt.Errorf("%s", strings.TrimSpace(errOut.String()))
+		msg := strings.ReplaceAll(errOut.String(), root+string(filepath.Separator), "")
+		return "", fmt.Errorf("%s", strings.TrimSpace(strings.ReplaceAll(msg, root, ".")))
 	}
 	return out.String(), nil
 }

@@ -98,7 +98,7 @@ func TestQueryErrors(t *testing.T) {
 		code int
 		msg  string
 	}{
-		{[]string{"deps"}, 2, "needs a file"},
+		{[]string{"deps"}, 2, "deps needs a file, e.g. sprout deps main.go"},
 		{[]string{"deps", "."}, 2, "deps needs a file, and . is a folder (did you mean `sprout . --entry`?)"},
 		{[]string{"deps", "a"}, 2, "deps needs a file, and a is a folder (did you mean `sprout a --entry`?)"},
 		{[]string{"deps", filepath.Join(dir, "a")}, 2, "deps needs a file, and " + filepath.Join(dir, "a") + " is a folder"},

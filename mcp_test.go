@@ -159,3 +159,29 @@ func TestMCPGraphToolsConfineFiles(t *testing.T) {
 		t.Error("git wrote a file from an injected option")
 	}
 }
+
+// Agents get errors they can act on: paths relative to the project, the
+// tool to call instead, and no server paths.
+func TestMCPErrorsForAgents(t *testing.T) {
+	dir := impactRepo(t)
+	call := func(args string) (string, bool) {
+		resps := mcpSession(t, dir, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":`+args+`}`)
+		return toolText(t, resps[1])
+	}
+	resolved, _ := filepath.EvalSymlinks(dir)
+	for _, c := range []struct{ args, want string }{
+		{`{"name":"deps","arguments":{"file":"a"}}`, "a is a folder; deps needs a file (for where to start in a folder, call reading_order)"},
+		{`{"name":"context","arguments":{"file":"."}}`, "reading_order"},
+		{`{"name":"deps","arguments":{"file":"missing.go"}}`, "missing.go"},
+		{`{"name":"project_map","arguments":{"budget":0}}`, "budget must be at least 1"},
+		{`{"name":"context","arguments":{"file":"a/a.go","budget":-5}}`, "budget must be at least 1"},
+	} {
+		text, isErr := call(c.args)
+		if !isErr || !strings.Contains(text, c.want) || strings.Contains(text, dir) || strings.Contains(text, resolved) || strings.Contains(text, "sprout ") {
+			t.Errorf("%s: %q", c.args, text)
+		}
+	}
+	if text, isErr := call(`{"name":"project_map","arguments":{"budget":300}}`); isErr {
+		t.Errorf("a valid budget failed: %s", text)
+	}
+}
