@@ -26,7 +26,7 @@ Commands
   dependents FILE       what depends on FILE, tests included
   impact [FILE...]      what a change could break, and the tests to run
   context FILE          what to know before editing FILE, in a token budget
-  mcp [root]            serve all of this to coding agents over MCP
+  mcp [root]            serve it to agents over MCP (--print-config CLIENT)
   Each command has --help. To map a folder named like one, write ./deps.
 
 Views

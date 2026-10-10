@@ -185,3 +185,102 @@ func TestMCPErrorsForAgents(t *testing.T) {
 		t.Errorf("a valid budget failed: %s", text)
 	}
 }
+
+// mcpRun runs a session started with args (none: "sprout mcp" in the
+// current folder) and returns every line it wrote.
+func mcpRun(t *testing.T, args []string, reqs ...string) string {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	if code := serveMCP(args, strings.NewReader(strings.Join(reqs, "\n")), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	return out.String()
+}
+
+// Started without a path, the server asks a client that supports MCP roots
+// which folder is open, and serves that.
+func TestMCPRootsFromClient(t *testing.T) {
+	started, open := t.TempDir(), t.TempDir()
+	write(t, open, "only_in_open.txt", "x")
+	chdir(t, started)
+	uri := "file://" + filepath.ToSlash(open)
+	if !strings.HasPrefix(uri, "file:///") {
+		uri = "file:///" + filepath.ToSlash(open) // Windows: C:/…
+	}
+	out := mcpRun(t, nil,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true}}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":"roots-1","result":{"roots":[{"uri":"`+uri+`","name":"open"}]}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tree","arguments":{}}}`,
+	)
+	if !strings.Contains(out, `"method":"roots/list"`) || !strings.Contains(out, "only_in_open.txt") {
+		t.Fatalf("roots not used:\n%s", out)
+	}
+
+	// A root given on the command line wins: the client isn't asked.
+	if out := mcpRun(t, []string{started},
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"capabilities":{"roots":{}}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+	); strings.Contains(out, "roots/list") {
+		t.Fatalf("asked for roots despite an explicit root:\n%s", out)
+	}
+}
+
+// Started in the home folder (as desktop apps may do) with nothing better
+// to go on, tools refuse instead of walking the whole home folder.
+func TestMCPRefusesHomeFolder(t *testing.T) {
+	home := t.TempDir()
+	write(t, home, "main.go", "package main\n")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	chdir(t, home)
+	call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"project_map","arguments":{}}}`
+	if out := mcpRun(t, nil, call); !strings.Contains(out, "won't map it") || !strings.Contains(out, `"isError":true`) {
+		t.Fatalf("home folder mapped without a word:\n%s", out)
+	}
+	if strings.Contains(mcpRun(t, nil, call), home) {
+		t.Fatal("the refusal reveals the home path")
+	}
+	// Asked for explicitly, it's served.
+	if out := mcpRun(t, []string{home}, call); strings.Contains(out, `"isError":true`) {
+		t.Fatalf("explicit home refused:\n%s", out)
+	}
+}
+
+// A map over its budget says so to the agent, not only to stderr.
+func TestMCPBudgetNote(t *testing.T) {
+	dir := impactRepo(t)
+	resps := mcpSession(t, dir, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"project_map","arguments":{"budget":5}}}`)
+	if text, isErr := toolText(t, resps[1]); isErr || !strings.Contains(text, "Note: the smallest map of this project is about") || strings.Contains(text, dir) {
+		t.Errorf("budget note missing:\n%s", text)
+	}
+}
+
+// --print-config prints valid setup for each client, with sprout's path.
+func TestMCPPrintConfig(t *testing.T) {
+	for client, key := range map[string]string{"cursor": "mcpServers", "vscode": "servers", "claude-desktop": "mcpServers"} {
+		var out, errOut bytes.Buffer
+		if code := serveMCP([]string{"--print-config", client}, strings.NewReader(""), &out, &errOut); code != 0 {
+			t.Fatalf("%s: exit %d: %s", client, code, errOut.String())
+		}
+		var cfg map[string]map[string]struct {
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &cfg); err != nil {
+			t.Fatalf("%s: not JSON: %v\n%s", client, err, out.String())
+		}
+		s := cfg[key]["sprout"]
+		if s.Command == "" || len(s.Args) != 2 || s.Args[0] != "mcp" || !strings.Contains(errOut.String(), "Put this in") {
+			t.Errorf("%s: %+v", client, s)
+		}
+	}
+	var out, errOut bytes.Buffer
+	serveMCP([]string{"--print-config", "claude-code"}, strings.NewReader(""), &out, &errOut)
+	if !strings.HasPrefix(out.String(), "claude mcp add sprout -- ") {
+		t.Errorf("claude-code: %q", out.String())
+	}
+	if code := serveMCP([]string{"--print-config", "zed"}, strings.NewReader(""), &out, &errOut); code != 2 {
+		t.Errorf("unknown client: exit %d", code)
+	}
+}
