@@ -354,15 +354,17 @@ fields isn't a breaking change. Every other flag applies, so
 ## Speed
 
 Sprout reads only what the output needs and parses sources in parallel. On
-Kubernetes (31,412 files, Apple M4, warm cache), from the controlled run in the
-[benchmark log](https://sprout-devlabs.github.io/sprout-web/benchmarks/):
+Kubernetes (31,412 files, Apple M4, warm cache):
 
 | Command | Time |
 |---|---|
-| `sprout` | 0.23 s |
 | `sprout --json` | 0.33 s |
 | `sprout --entry` | 0.57 s |
-| `sprout --ai` | 0.72 s |
+
+Times are medians of rounds 2–4 of five interleaved runs, after one warm-up,
+measured with `/usr/bin/time -l` and output sent to `/dev/null`. The
+[benchmark log](https://sprout-devlabs.github.io/sprout-web/benchmarks/) has
+the full controlled run, including the rounds and the methodology.
 
 `tour` costs about what `--entry` does; `impact` and `context` add the tests
 to the graph (about half a second more on Kubernetes). `bench_test.go`
