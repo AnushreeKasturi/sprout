@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"path/filepath"
 	"reflect"
@@ -173,7 +174,7 @@ func TestStreamingJSONMatchesLegacyOnRealTrees(t *testing.T) {
 				t.Fatalf("%v: exit %d: %s", a, code, errOut)
 			}
 			f := parseFlagsForTest(t, a)
-			tree, _, err := load(".", f, contains(args, "--git"), "")
+			tree, _, err := load(".", f, contains(args, "--git"), "", io.Discard)
 			if err != nil {
 				t.Fatal(err)
 			}

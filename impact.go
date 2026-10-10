@@ -250,11 +250,27 @@ func printImpact(w io.Writer, g *Graph, res impactResult, all bool) {
 			direct++
 		}
 	}
-	fmt.Fprintf(w, "Impact of %s (%s)\n\n", plural(len(res.Changed), "changed file"), res.Source)
+	if res.Source == "files" {
+		fmt.Fprintf(w, "Impact of %s\n\n", plural(len(res.Changed), "file"))
+	} else {
+		fmt.Fprintf(w, "Impact of %s (%s)\n\n", plural(len(res.Changed), "changed file"), res.Source)
+	}
 	for _, c := range res.Changed {
 		fmt.Fprintf(w, "  %s\n", c)
 	}
+	printAffected(w, g, code, direct, all)
+	printImpactTests(w, res, all)
+	if len(res.Untracked) > 0 {
+		fmt.Fprintf(w, "\nNot traced (not source code Sprout reads): %s\n", strings.Join(capList(res.Untracked, 6), ", "))
+	}
+	if len(res.Deleted) > 0 {
+		fmt.Fprintf(w, "Deleted: %s (what imported them can't be traced from the files left)\n", strings.Join(capList(res.Deleted, 6), ", "))
+	}
+}
 
+// printAffected lists the code a change reaches: the direct dependents with
+// why, the rest counted unless all.
+func printAffected(w io.Writer, g *Graph, code []queryHit, direct int, all bool) {
 	fmt.Fprintf(w, "\nAffected: %s", plural(len(code), "file"))
 	if len(code) > 0 {
 		fmt.Fprintf(w, ", %d directly", direct)
@@ -280,7 +296,11 @@ func printImpact(w io.Writer, g *Graph, res impactResult, all bool) {
 	if rest := len(code) - len(shown); rest > 0 {
 		fmt.Fprintf(w, "  … and %s through them (--all lists them)\n", plural(rest, "more file"))
 	}
+}
 
+// printImpactTests lists the tests that reach a change: a go test command
+// for Go packages, and the other test files by name.
+func printImpactTests(w io.Writer, res impactResult, all bool) {
 	fmt.Fprintf(w, "\nTests: %s", plural(len(res.Tests), "file"))
 	if len(res.GoPackages) > 0 {
 		fmt.Fprintf(w, ", %s", plural(len(res.GoPackages), "Go package"))
@@ -309,12 +329,5 @@ func printImpact(w io.Writer, g *Graph, res impactResult, all bool) {
 	}
 	if len(res.Tests) == 0 {
 		fmt.Fprintln(w, "  none found: no test imports the changed files, directly or through others")
-	}
-
-	if len(res.Untracked) > 0 {
-		fmt.Fprintf(w, "\nNot traced (not source code Sprout reads): %s\n", strings.Join(capList(res.Untracked, 6), ", "))
-	}
-	if len(res.Deleted) > 0 {
-		fmt.Fprintf(w, "Deleted: %s (what imported them can't be traced from the files left)\n", strings.Join(capList(res.Deleted, 6), ", "))
 	}
 }

@@ -31,6 +31,10 @@ func runContext(args []string, root string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Run 'sprout context --help' for usage.")
 		return 2
 	}
+	if *budget < 1 {
+		fmt.Fprintln(stderr, "sprout: --budget must be at least 1")
+		return 2
+	}
 	if arg == "." {
 		fmt.Fprintln(stderr, "sprout: context needs a file, e.g. sprout context main.go")
 		return 2

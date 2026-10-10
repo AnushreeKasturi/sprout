@@ -586,8 +586,14 @@ type goModule struct{ path, dir string }
 
 // goModules reads every go.mod in the tree, longest module path first, so
 // imports resolve in multi-module repositories (kubernetes' staging/, for
-// one), not just against the root module.
+// one), not just against the root module. When several declare the same
+// path, as test fixtures copying the project's go.mod do (cli/cli's CodeQL
+// tests), the shallowest one is the project.
 func goModules(t *Tree, mods []*Node) []goModule {
+	sort.SliceStable(mods, func(i, j int) bool {
+		return strings.Count(mods[i].Rel, "/") < strings.Count(mods[j].Rel, "/")
+	})
+	seen := map[string]bool{}
 	var out []goModule
 	for _, n := range mods {
 		data, err := os.ReadFile(t.FSPath(n))
@@ -596,7 +602,10 @@ func goModules(t *Tree, mods []*Node) []goModule {
 		}
 		for _, line := range strings.Split(string(data), "\n") {
 			if m, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
-				out = append(out, goModule{strings.Trim(strings.TrimSpace(m), `"`), path.Dir(n.Rel)})
+				if p := strings.Trim(strings.TrimSpace(m), `"`); !seen[p] {
+					seen[p] = true
+					out = append(out, goModule{p, path.Dir(n.Rel)})
+				}
 				break
 			}
 		}

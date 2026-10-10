@@ -240,8 +240,9 @@ func tourExcerpt(text, root string) string {
 	return text
 }
 
-// Keep repository-controlled names and prose from injecting terminal escapes.
-func tourText(s string) string {
+// printable keeps repository-controlled names and prose from injecting
+// terminal escapes: control and format characters become spaces.
+func printable(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) || unicode.In(r, unicode.Cf) {
 			return ' '
@@ -259,20 +260,20 @@ func printTour(w io.Writer, r tourResult) error {
 	// The first two caveats hold for every tour; JSON keeps them for scripts.
 	fmt.Fprintln(&b, "\nNote: suggestions are heuristics from static analysis, not runtime behavior.")
 	for _, caveat := range r.Caveats[min(2, len(r.Caveats)):] {
-		fmt.Fprintf(&b, "Note: %s\n", tourText(caveat))
+		fmt.Fprintf(&b, "Note: %s\n", printable(caveat))
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
 }
 
 func writeTourSummary(b *strings.Builder, r tourResult) {
-	fmt.Fprintf(b, "Tour of %s\n\n", tourText(r.Project))
+	fmt.Fprintf(b, "Tour of %s\n\n", printable(r.Project))
 	if r.Purpose != nil {
-		fmt.Fprintf(b, "Purpose (%s excerpt): %s\n", tourText(r.Purpose.Path), tourText(r.Purpose.Text))
+		fmt.Fprintf(b, "Purpose (%s excerpt): %s\n", printable(r.Purpose.Path), printable(r.Purpose.Text))
 	} else {
 		fmt.Fprintln(b, "Purpose: no readable README prose found.")
 	}
-	fmt.Fprintf(b, "%s, %s (%s ignored or skipped)\n", plural(r.Files, "file"), plural(r.Directories, "directory"), plural(r.Skipped, "entry"))
+	fmt.Fprintf(b, "%s, %s (%s ignored or skipped)\n", plural(r.Directories, "directory"), plural(r.Files, "file"), plural(r.Skipped, "entry"))
 	if len(r.Projects) == 0 {
 		fmt.Fprintln(b, "Ecosystems: no recognized root manifest found.")
 	}
@@ -290,7 +291,7 @@ func writeTourLayout(b *strings.Builder, r tourResult) {
 		fmt.Fprintln(b, "  No visible subdirectories.")
 	}
 	for _, d := range r.Layout {
-		fmt.Fprintf(b, "  %s/ (%s)\n", tourText(d.Path), plural(d.Files, "file"))
+		fmt.Fprintf(b, "  %s/ (%s)\n", printable(d.Path), plural(d.Files, "file"))
 	}
 	if r.OmittedLayout > 0 {
 		fmt.Fprintf(b, "  +%d directories omitted; raise --limit (maximum 50) or use sprout -L 2.\n", r.OmittedLayout)
@@ -303,7 +304,7 @@ func writeTourReading(b *strings.Builder, r tourResult) {
 		fmt.Fprintln(b, "  No README, likely entry points or local dependencies found to rank.")
 	}
 	for i, step := range r.ReadingOrder {
-		fmt.Fprintf(b, "  %d. %s — %s\n", i+1, tourText(step.Path), tourText(step.Reason))
+		fmt.Fprintf(b, "  %d. %s — %s\n", i+1, printable(step.Path), printable(step.Reason))
 	}
 	if r.OmittedReading > 0 {
 		fmt.Fprintf(b, "  +%d reading candidates omitted; raise --limit (maximum 50).\n", r.OmittedReading)
@@ -317,7 +318,7 @@ func writeTourNext(b *strings.Builder, commands [][]string) {
 		// prevent expansion; PowerShell and POSIX escape apostrophes differently.
 		parts := append([]string{}, argv...)
 		if len(parts) == 3 && parts[1] == "context" {
-			if tourText(parts[2]) != parts[2] {
+			if printable(parts[2]) != parts[2] {
 				continue // no misleading executable suggestion for control characters
 			}
 			escape := `'"'"'`

@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -50,5 +52,45 @@ func TestHelp(t *testing.T) {
 	_, errOut, code := runCLI(t, "--nope")
 	if code != 2 || !strings.Contains(errOut, "sprout --help") {
 		t.Errorf("unknown flag: exit %d, stderr %q", code, errOut)
+	}
+}
+
+func TestFlagLimits(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "main.go", "package main\n")
+	for _, args := range [][]string{{"--depth", "-3"}, {"--ai", "--budget", "0"}} {
+		if _, errOut, code := runCLI(t, append([]string{dir, "--no-config"}, args...)...); code != 2 || errOut == "" {
+			t.Errorf("%v: exit %d, %q", args, code, errOut)
+		}
+	}
+	if _, errOut, code := runCLI(t, dir, "--no-config", "--ai", "--budget", "5"); code != 0 || !strings.Contains(errOut, "over --budget 5") {
+		t.Errorf("a map over budget should say so: exit %d, %q", code, errOut)
+	}
+}
+
+func TestSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "real.md", "x")
+	if err := os.Symlink("real.md", filepath.Join(dir, "link.md")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if out, _, _ := runCLI(t, dir, "--no-config"); !strings.Contains(out, "link.md -> real.md") {
+		t.Errorf("symlink target missing:\n%s", out)
+	}
+}
+
+// File names and link targets come from the repository: they mustn't reach
+// the terminal as escape sequences.
+func TestTreeEscapesControlCharacters(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "evil\x1b[31mname"), nil, 0o600); err != nil {
+		t.Skipf("can't create the file here: %v", err)
+	}
+	if err := os.Symlink("x\x1b]0;title\x07", filepath.Join(dir, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	out, _, _ := runCLI(t, dir, "--no-config")
+	if strings.ContainsAny(out, "\x1b\x07") {
+		t.Fatalf("control characters reached the output: %q", out)
 	}
 }

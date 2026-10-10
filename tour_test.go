@@ -213,7 +213,7 @@ func TestTourPresentationSafety(t *testing.T) {
 	if r.Purpose == nil || strings.Contains(raw, "password") || strings.Contains(raw, "secret") || r.ReadingOrder[0].Path != "README.txt" {
 		t.Fatalf("unsafe excerpt: %s", raw)
 	}
-	if got := tourText("hello\x1b[31m\n\u202eworld"); strings.ContainsAny(got, "\x1b\n\u202e") {
+	if got := printable("hello\x1b[31m\n\u202eworld"); strings.ContainsAny(got, "\x1b\n\u202e") {
 		t.Fatalf("terminal control characters: %q", got)
 	}
 	if runtime.GOOS != "windows" {
@@ -297,6 +297,14 @@ func TestReadmeProse(t *testing.T) {
 		"Anyhow&ensp;¯\\\\_(ツ)\\_/¯\n=====\n\nProvides [anyhow::Error][Error].\n": "Provides anyhow::Error.",
 		"[<img src=x>](y)\n- ⚡ [**FastAPI**](https://x) for the `API`.\n":         "⚡ FastAPI for the API.",
 		"---\n\nText &amp; more\n":                                                "Text & more",
+		// bubbletea: the sentence wraps onto the next line
+		"The fun way to build apps. A Go framework\nbased on The Elm Architecture.\n\nMore.\n": "The fun way to build apps. A Go framework based on The Elm Architecture.",
+		// gleam: a licence header in an HTML comment
+		"<!--\n  SPDX-License-Identifier: Apache-2.0\n-->\n\nGleam is friendly.\n": "Gleam is friendly.",
+		// list items stand alone
+		"- First item\n- Second item\n": "First item",
+		// long text ends at a sentence, not mid-word
+		strings.Repeat("Word ", 30) + "end. " + strings.Repeat("More ", 30) + "\n": strings.TrimSpace(strings.Repeat("Word ", 30)) + " end.",
 	} {
 		if got := readmeProse(strings.NewReader(in)); got != want {
 			t.Errorf("readmeProse(%q) = %q, want %q", in, got, want)
@@ -362,6 +370,20 @@ func BenchmarkTour(b *testing.B) {
 		var out, errOut bytes.Buffer
 		if code := runTour([]string{dir, "--json"}, &out, &errOut); code != 0 {
 			b.Fatalf("exit %d: %s", code, errOut.String())
+		}
+	}
+}
+
+// A library's tutorials have main.go files too; they aren't where to start.
+func TestTourSkipsTutorials(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module example.com/lib\n")
+	write(t, dir, "lib.go", "package lib\nfunc Run() {}\n")
+	write(t, dir, "tutorials/basics/main.go", "package main\nimport \"example.com/lib\"\nfunc main() { lib.Run() }\n")
+	r, _ := tourJSON(t, dir)
+	for _, s := range r.ReadingOrder {
+		if strings.HasPrefix(s.Path, "tutorials/") {
+			t.Fatalf("tutorial ranked: %+v", r.ReadingOrder)
 		}
 	}
 }
