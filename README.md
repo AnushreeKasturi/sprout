@@ -351,22 +351,6 @@ The command line always wins. `--no-config` skips both files.
 fields isn't a breaking change. Every other flag applies, so
 `sprout --diff main...HEAD --json` can feed a PR bot directly.
 
-Sprout's `deps`, `dependents`, `impact`, `context`, and `tour` commands support `--json` for machine-readable output with a `schemaVersion`. The `impact` command reports affected files, tests, and test commands for supported languages through `testCommands` (Python, TypeScript, and JavaScript) and `goTestPackages` (Go). The `context FILE --json` command provides file context, while `tour --json` returns a structured project tour. These outputs can be used in scripts, CI workflows, and bots.
-
-For example, run Go tests for packages affected by a branch:
-
-```sh
-sprout impact --diff origin/main...HEAD --json |
-  jq -r '.goTestPackages[]' |
-  xargs go test
-```
-
-## Scripting
-
-`--json` emits the tree, stack and stats, with a `schemaVersion`. Adding
-fields isn't a breaking change. Every other flag applies, so
-`sprout --diff main...HEAD --json` can feed a PR bot directly.
-
 Sprout's `deps`, `dependents`, `impact`, `context` and `tour` commands
 support `--json` for machine-readable output with a `schemaVersion`.
 The `impact` command reports affected files, tests and test commands for
