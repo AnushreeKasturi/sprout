@@ -58,7 +58,7 @@ type mcpTool struct {
 }
 
 type toolArgs struct {
-	Root   string `json:"root"` // another project for this call, as an absolute path
+	Root   string `json:"root"` // another project for this call: checked and applied in rootFor
 	Path   string `json:"path"`
 	Budget *int   `json:"budget"` // nil when not given
 	Depth  *int   `json:"depth"`
@@ -463,10 +463,11 @@ func (s *mcpConn) serve(req rpcRequest) error {
 	}
 	var result any
 	var rerr *rpcError
-	if req.Method == "tools/call" && s.broad() && callRoot(req) == "" {
-		result = toolResult(broadRootMessage, true)
+	root, err := s.rootFor(req)
+	if err != nil {
+		result = toolResult(err.Error(), true)
 	} else {
-		result, rerr = handleMCP(s.root, req)
+		result, rerr = handleMCP(root, req)
 	}
 	if req.ID == nil {
 		return nil // notification: never answered
@@ -592,9 +593,29 @@ func callRoot(req rpcRequest) string {
 	return p.Arguments.Root
 }
 
-// callRootDir checks a root argument: an absolute path, or one under ~, to
-// a folder that isn't the home folder or the filesystem root.
-func callRootDir(given string) (string, error) {
+// rootFor is the root a request runs against: the connection's, or for a
+// tool call that names one, its root argument. A call without one in a
+// folder that isn't a project is refused.
+func (s *mcpConn) rootFor(req rpcRequest) (string, error) {
+	if req.Method != "tools/call" {
+		return s.root, nil
+	}
+	given := callRoot(req)
+	if given == "" {
+		if s.broad() {
+			return "", errors.New(broadRootMessage)
+		}
+		return s.root, nil
+	}
+	return s.callRootDir(given)
+}
+
+// callRootDir checks a root argument, which is untrusted input like any
+// other: an absolute path (or one under ~) to a project folder, meaning one
+// with .git or a manifest, that isn't hidden and isn't the home folder or
+// the filesystem root. With a root given on the command line, it must be
+// inside that root: the user scoped the server, and an agent can't widen it.
+func (s *mcpConn) callRootDir(given string) (string, error) {
 	p := given
 	if p == "~" || strings.HasPrefix(p, "~/") {
 		home, err := os.UserHomeDir()
@@ -610,13 +631,31 @@ func callRootDir(given string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("root %q: %v", given, errReason(err))
 	}
+	if s.fixed {
+		if rel, err := filepath.Rel(s.root, dir); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+			return "", fmt.Errorf("root %q is outside %s, the folder this server was started for", given, s.root)
+		}
+	}
+	return dir, projectDirCheck(given, dir)
+}
+
+// projectDirCheck refuses a root argument that isn't a project folder.
+func projectDirCheck(given, dir string) error {
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
-		return "", fmt.Errorf("root %q isn't a folder", given)
+		return fmt.Errorf("root %q isn't a folder", given)
 	}
 	if broadDir(dir) {
-		return "", fmt.Errorf("root %q is the home folder or the filesystem root, not a project", given)
+		return fmt.Errorf("root %q is the home folder or the filesystem root, not a project", given)
 	}
-	return dir, nil
+	for _, part := range strings.Split(filepath.ToSlash(dir), "/") {
+		if strings.HasPrefix(part, ".") && part != "." && part != ".." {
+			return fmt.Errorf("root %q is in a hidden folder; sprout only serves project folders", given)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil && len(DetectProject(dir)) == 0 {
+		return fmt.Errorf("root %q isn't a project folder: it has no .git or manifest such as go.mod or package.json", given)
+	}
+	return nil
 }
 
 func handleMCP(root string, req rpcRequest) (any, *rpcError) {
@@ -677,13 +716,6 @@ func callTool(root string, tool mcpTool, raw json.RawMessage) (string, error) {
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return "", fmt.Errorf("invalid arguments: %v", err)
 		}
-	}
-	if a.Root != "" {
-		dir, err := callRootDir(a.Root)
-		if err != nil {
-			return "", err
-		}
-		root = dir
 	}
 	if tool.run != nil {
 		return callGraphTool(root, tool, a)

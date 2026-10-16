@@ -97,6 +97,8 @@ give both in full (`which sprout` prints the first):
 
 Every tool also takes `root`, the project's absolute path, for when the
 agent is working in a project other than the folder its client has open.
+It must be a project folder (one with `.git` or a manifest like `go.mod`),
+not a hidden one, and inside the folder you gave `sprout mcp`, if you gave one.
 
 Agents are told when each tool beats searching by hand. The server is read-only. Paths and file arguments are confined to the project,
 symlinks included, git arguments can't carry options, and it never clones.

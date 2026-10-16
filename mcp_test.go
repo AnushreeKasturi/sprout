@@ -407,11 +407,32 @@ func TestMCPRootArgument(t *testing.T) {
 	if text, isErr := call(`{"file":"a/a.go"}`); !isErr || !strings.Contains(text, "won't map it") {
 		t.Errorf("without root, the home folder should be refused: %q", text)
 	}
-	homeJSON, _ := json.Marshal(home)
-	for _, bad := range []string{string(homeJSON), `"~"`, `"/"`, `"relative/dir"`, `"/no/such/folder/anywhere"`} {
+	// root is untrusted input: only project folders, never hidden ones.
+	notProject := t.TempDir()
+	write(t, notProject, "a/a.go", "package a\n")
+	hidden := filepath.Join(t.TempDir(), ".secrets")
+	write(t, hidden, "go.mod", "module x\n")
+	write(t, hidden, "a/a.go", "package a\n")
+	quote := func(p string) string { b, _ := json.Marshal(p); return string(b) }
+	for _, bad := range []string{quote(home), `"~"`, `"/"`, `"relative/dir"`, `"/no/such/folder/anywhere"`, quote(notProject), quote(hidden)} {
 		if text, isErr := call(`{"file":"a/a.go","root":` + bad + `}`); !isErr || !strings.Contains(text, "root") {
 			t.Errorf("root %s should be refused: %q", bad, text)
 		}
+	}
+	// A root given on the command line bounds root: inside it, fine; outside, refused.
+	outer := t.TempDir()
+	inner := filepath.Join(outer, "inner")
+	write(t, inner, "go.mod", "module inner\n")
+	write(t, inner, "x.txt", "x")
+	tree := func(serverRoot, root string) (string, bool) {
+		resps := mcpSession(t, serverRoot, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tree","arguments":{"root":`+quote(root)+`}}}`)
+		return toolText(t, resps[1])
+	}
+	if text, isErr := tree(outer, inner); isErr || !strings.Contains(text, "x.txt") {
+		t.Errorf("root inside the command-line root refused: %q", text)
+	}
+	if text, isErr := tree(inner, project); !isErr || !strings.Contains(text, "outside") {
+		t.Errorf("root outside the command-line root allowed: %q", text)
 	}
 	// Every tool says it takes root.
 	resps := mcpSession(t, project, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
