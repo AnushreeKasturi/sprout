@@ -95,6 +95,11 @@ give both in full (`which sprout` prints the first):
 | `impact` | What a change could break, and the tests to run: given files, uncommitted, staged, a range or a commit |
 | `context` | What to know before editing a file: signatures it uses, its users, its tests |
 
+Every tool also takes `root`, the project's absolute path, for when the
+agent is working in a project other than the folder its client has open.
+It must be a project folder (one with `.git` or a manifest like `go.mod`),
+not a hidden one, and inside the folder you gave `sprout mcp`, if you gave one.
+
 Agents are told when each tool beats searching by hand. The server is read-only. Paths and file arguments are confined to the project,
 symlinks included, git arguments can't carry options, and it never clones.
 
@@ -105,9 +110,12 @@ symlinks included, git arguments can't carry options, and it never clones.
   and wait. "command not found" in the client's MCP log means it can't see
   your `PATH`: use the full path from `which sprout`.
 - **The map is of the wrong folder:** the server serves the folder you pass
-  it, else the one your client says is open (MCP roots), else the one it
-  started in. Started in `/` or your home folder, it refuses rather than map
-  everything; pass the project explicitly, as in the examples above.
+  it, else the one your client says is open (MCP roots, followed when it
+  changes), else the one it started in. In `/` or your home folder, whether
+  it started there or the client is open there, it refuses rather than map
+  everything. Start the agent inside the project, pass the project
+  explicitly as in the examples above, or let the agent pass `root`.
+  When a file isn't found, the error names the folder being served.
 - **Stale results:** there are none to worry about. Every call reads the
   disk again, so files your agent just wrote are in the next answer.
 

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -250,6 +251,7 @@ func goReason(r resolver, from, to string, ff, tf *goFacts) (string, []string) {
 				names = append(names, name)
 			}
 		}
+		names = append(names, methodsCalled(ff, tf, declared)...)
 		return "uses " + someOf(names), names
 	}
 	for _, imp := range ff.imports {
@@ -273,6 +275,20 @@ func goReason(r resolver, from, to string, ff, tf *goFacts) (string, []string) {
 		return "uses " + someOf(shown), names
 	}
 	return "", nil
+}
+
+// methodsCalled are the methods tf declares on a type from elsewhere in the
+// package that ff calls, like func (r resolver) probe() called as r.probe():
+// changing one breaks the caller as surely as a function would. Methods on
+// tf's own types are covered by naming the type.
+func methodsCalled(ff, tf *goFacts, declared map[string]bool) []string {
+	var names []string
+	for _, m := range tf.methods {
+		if !declared[m[0]] && !declared[m[1]] && ff.called[m[1]] && !slices.Contains(names, m[1]) {
+			names = append(names, m[1])
+		}
+	}
+	return names
 }
 
 // someOf lists up to three names, sorted, and counts the rest.
@@ -337,7 +353,9 @@ func langOf(name string) string {
 type goFacts struct {
 	pkg       string
 	declares  []string        // top-level names
+	methods   [][2]string     // {receiver type, method}: not links, only what a "uses" reason names
 	uses      map[string]bool // every identifier: same-package references
+	called    map[string]bool // every x.Name selector's Name, for methods
 	imports   []goImport
 	selectors map[[2]string]bool // {"pkg", "Name"} for every pkg.Name selector on a bare identifier
 }
@@ -352,7 +370,7 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 	if err != nil {
 		return nil, nil
 	}
-	gf := &goFacts{pkg: file.Name.Name, uses: map[string]bool{}, selectors: map[[2]string]bool{}}
+	gf := &goFacts{pkg: file.Name.Name, uses: map[string]bool{}, called: map[string]bool{}, selectors: map[[2]string]bool{}}
 	// Only selectors that could be on an imported package are kept: every
 	// file's selectors are held until linking, so this bounds memory. If a
 	// package's name isn't guessable from its path, its import falls back to
@@ -375,6 +393,7 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 		case *ast.Ident:
 			gf.uses[x.Name] = true
 		case *ast.SelectorExpr:
+			gf.called[x.Sel.Name] = true
 			if id, ok := x.X.(*ast.Ident); ok && pkgNames[id.Name] {
 				gf.selectors[[2]string{id.Name, x.Sel.Name}] = true
 			}
@@ -384,7 +403,9 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 	for _, d := range file.Decls {
 		switch d := d.(type) {
 		case *ast.FuncDecl:
-			if d.Recv == nil && d.Name.Name != "main" && d.Name.Name != "init" {
+			if d.Recv != nil {
+				gf.methods = append(gf.methods, [2]string{recvType(d.Recv), d.Name.Name})
+			} else if d.Name.Name != "main" && d.Name.Name != "init" {
 				gf.declares = append(gf.declares, d.Name.Name)
 			}
 		case *ast.GenDecl:
@@ -433,6 +454,27 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 		}
 	}
 	return append(symbols, private...), gf
+}
+
+// recvType is a method receiver's type name: T for (t T), (t *T) or (t T[K]).
+func recvType(recv *ast.FieldList) string {
+	if len(recv.List) == 0 {
+		return ""
+	}
+	t := recv.List[0].Type
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	switch x := t.(type) {
+	case *ast.IndexExpr:
+		t = x.X
+	case *ast.IndexListExpr:
+		t = x.X
+	}
+	if id, ok := t.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
 }
 
 // linkGo adds the Go edges, file to file:

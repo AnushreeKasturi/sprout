@@ -161,7 +161,9 @@ func TestMCPGraphToolsConfineFiles(t *testing.T) {
 }
 
 // Agents get errors they can act on: paths relative to the project, the
-// tool to call instead, and no server paths.
+// tool to call instead, and no server paths, except where a file can't be
+// found: then the folder being served, since a wrong root is the usual cause
+// and the client named that folder itself.
 func TestMCPErrorsForAgents(t *testing.T) {
 	dir := impactRepo(t)
 	call := func(args string) (string, bool) {
@@ -172,7 +174,6 @@ func TestMCPErrorsForAgents(t *testing.T) {
 	for _, c := range []struct{ args, want string }{
 		{`{"name":"deps","arguments":{"file":"a"}}`, "a is a folder; deps needs a file (for where to start in a folder, call reading_order)"},
 		{`{"name":"context","arguments":{"file":"."}}`, "reading_order"},
-		{`{"name":"deps","arguments":{"file":"missing.go"}}`, "missing.go"},
 		{`{"name":"project_map","arguments":{"budget":0}}`, "budget must be at least 1"},
 		{`{"name":"context","arguments":{"file":"a/a.go","budget":-5}}`, "budget must be at least 1"},
 	} {
@@ -180,6 +181,10 @@ func TestMCPErrorsForAgents(t *testing.T) {
 		if !isErr || !strings.Contains(text, c.want) || strings.Contains(text, dir) || strings.Contains(text, resolved) || strings.Contains(text, "sprout ") {
 			t.Errorf("%s: %q", c.args, text)
 		}
+	}
+	if text, isErr := call(`{"name":"deps","arguments":{"file":"missing.go"}}`); !isErr ||
+		!strings.Contains(text, `"missing.go" isn't in `+resolved) || !strings.Contains(text, "pass root") {
+		t.Errorf("a missing file should name the folder being served: %q", text)
 	}
 	if text, isErr := call(`{"name":"project_map","arguments":{"budget":300}}`); isErr {
 		t.Errorf("a valid budget failed: %s", text)
@@ -323,5 +328,150 @@ func TestMCPPrintConfigRunningBinary(t *testing.T) {
 	self, _ = filepath.EvalSymlinks(self)
 	if !strings.Contains(out.String(), strings.ReplaceAll(self, `\`, `\\`)) {
 		t.Errorf("config doesn't name the running binary %s:\n%s", self, out.String())
+	}
+}
+
+// fileURI is dir as a file:// URI, as MCP clients send roots.
+func fileURI(dir string) string {
+	if p := filepath.ToSlash(dir); strings.HasPrefix(p, "/") {
+		return "file://" + p
+	} else {
+		return "file:///" + p // Windows: C:/…
+	}
+}
+
+// rootsSession starts "sprout mcp" with args, as a client that supports
+// roots and is open in the given folders, then sends the calls.
+func rootsSession(t *testing.T, args []string, open []string, calls ...string) string {
+	t.Helper()
+	var roots []string
+	for _, dir := range open {
+		roots = append(roots, `{"uri":"`+fileURI(dir)+`"}`)
+	}
+	return mcpRun(t, args, append([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{"roots":{"listChanged":true}}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
+		`{"jsonrpc":"2.0","id":"roots-1","result":{"roots":[` + strings.Join(roots, ",") + `]}}`,
+	}, calls...)...)
+}
+
+// A client open in the home folder or the filesystem root names no project:
+// tools refuse it, as they would if the server had started there, rather
+// than map it or fall back to the folder the server started in. A project
+// folder listed next to it wins.
+func TestMCPRefusesHomeFolderFromClient(t *testing.T) {
+	home, started, project := t.TempDir(), t.TempDir(), t.TempDir()
+	write(t, home, "secret.txt", "x")
+	write(t, started, "started.txt", "x")
+	write(t, project, "in_project.txt", "x")
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	chdir(t, started)
+	tree := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tree","arguments":{}}}`
+	for _, open := range []string{home, string(filepath.Separator)} {
+		out := rootsSession(t, nil, []string{open}, tree)
+		if !strings.Contains(out, "won't map it") || !strings.Contains(out, `"isError":true`) ||
+			strings.Contains(out, "secret.txt") || strings.Contains(out, "started.txt") {
+			t.Errorf("client open in %s: not refused:\n%s", open, out)
+		}
+	}
+	if out := rootsSession(t, nil, []string{home, project}, tree); !strings.Contains(out, "in_project.txt") {
+		t.Errorf("the project folder after the home folder wasn't used:\n%s", out)
+	}
+	// Given on the command line, the home folder is served whatever the client says.
+	if out := rootsSession(t, []string{home}, []string{home}, tree); !strings.Contains(out, "secret.txt") {
+		t.Errorf("explicit home refused:\n%s", out)
+	}
+}
+
+// A call can name its own project with root, whatever folder the server is
+// on, including when that folder is refused. Bad roots are refused.
+func TestMCPRootArgument(t *testing.T) {
+	project := impactRepo(t)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	chdir(t, home)
+	call := func(args string) (string, bool) {
+		out := mcpRun(t, nil, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dependents","arguments":`+args+`}}`)
+		var r map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &r); err != nil {
+			t.Fatalf("bad response %q: %v", out, err)
+		}
+		return toolText(t, r)
+	}
+	rootJSON, _ := json.Marshal(project)
+	if text, isErr := call(`{"file":"a/a.go","root":` + string(rootJSON) + `}`); isErr || !strings.Contains(text, "b/b.go") {
+		t.Errorf("root argument not used: %q", text)
+	}
+	if text, isErr := call(`{"file":"a/a.go"}`); !isErr || !strings.Contains(text, "won't map it") {
+		t.Errorf("without root, the home folder should be refused: %q", text)
+	}
+	// root is untrusted input: only project folders, never hidden ones.
+	notProject := t.TempDir()
+	write(t, notProject, "a/a.go", "package a\n")
+	hidden := filepath.Join(t.TempDir(), ".secrets")
+	write(t, hidden, "go.mod", "module x\n")
+	write(t, hidden, "a/a.go", "package a\n")
+	quote := func(p string) string { b, _ := json.Marshal(p); return string(b) }
+	for _, bad := range []string{quote(home), `"~"`, `"/"`, `"relative/dir"`, `"/no/such/folder/anywhere"`, quote(notProject), quote(hidden)} {
+		if text, isErr := call(`{"file":"a/a.go","root":` + bad + `}`); !isErr || !strings.Contains(text, "root") {
+			t.Errorf("root %s should be refused: %q", bad, text)
+		}
+	}
+	// A root given on the command line bounds root: inside it, fine; outside, refused.
+	outer := t.TempDir()
+	inner := filepath.Join(outer, "inner")
+	write(t, inner, "go.mod", "module inner\n")
+	write(t, inner, "x.txt", "x")
+	tree := func(serverRoot, root string) (string, bool) {
+		resps := mcpSession(t, serverRoot, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"tree","arguments":{"root":`+quote(root)+`}}}`)
+		return toolText(t, resps[1])
+	}
+	if text, isErr := tree(outer, inner); isErr || !strings.Contains(text, "x.txt") {
+		t.Errorf("root inside the command-line root refused: %q", text)
+	}
+	if text, isErr := tree(inner, project); !isErr || !strings.Contains(text, "outside") {
+		t.Errorf("root outside the command-line root allowed: %q", text)
+	}
+	// Every tool says it takes root.
+	resps := mcpSession(t, project, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	for _, tool := range resps[1]["result"].(map[string]any)["tools"].([]any) {
+		props := tool.(map[string]any)["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		if _, ok := props["root"]; !ok {
+			t.Errorf("%s has no root argument", tool.(map[string]any)["name"])
+		}
+	}
+}
+
+// When the client's open folder changes, the server follows it; a root
+// given on the command line stays put.
+func TestMCPFollowsRootChange(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	write(t, first, "in_first.txt", "x")
+	write(t, second, "in_second.txt", "x")
+	chdir(t, t.TempDir())
+	changed := []string{
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"tree","arguments":{}}}`,
+		`{"jsonrpc":"2.0","method":"notifications/roots/list_changed"}`,
+		`{"jsonrpc":"2.0","id":"roots-2","result":{"roots":[{"uri":"` + fileURI(second) + `"}]}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"tree","arguments":{}}}`,
+	}
+	out := rootsSession(t, nil, []string{first}, changed...)
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	var two, three string
+	for _, l := range lines {
+		switch {
+		case strings.Contains(l, `"id":2,`):
+			two = l
+		case strings.Contains(l, `"id":3,`):
+			three = l
+		}
+	}
+	if !strings.Contains(two, "in_first.txt") || !strings.Contains(three, "in_second.txt") {
+		t.Errorf("didn't follow the change:\n%s", out)
+	}
+	if out := rootsSession(t, []string{first}, []string{second}, changed...); strings.Contains(out, "in_second.txt") || strings.Contains(out, "roots/list") {
+		t.Errorf("a command-line root moved:\n%s", out)
 	}
 }
