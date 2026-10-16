@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"os/exec"
@@ -29,7 +31,8 @@ const mcpInstructions = "Sprout maps this codebase: its structure and how files 
 	"Use it instead of grep for questions about relationships between files: dependents and deps for what " +
 	"imports a file and what it imports; impact for what a change could break and which tests cover it, " +
 	"including tests that reach a file through other files, which text search misses; context before " +
-	"editing a file; project_map to get oriented in an unfamiliar repository."
+	"editing a file; project_map to get oriented in an unfamiliar repository. Every tool takes an optional " +
+	"root: the absolute path of the project, for when it isn't the folder the client has open."
 
 var mcpVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"}
 
@@ -55,6 +58,7 @@ type mcpTool struct {
 }
 
 type toolArgs struct {
+	Root   string `json:"root"` // another project for this call, as an absolute path
 	Path   string `json:"path"`
 	Budget *int   `json:"budget"` // nil when not given
 	Depth  *int   `json:"depth"`
@@ -223,7 +227,13 @@ var graphTools = []mcpTool{
 	},
 }
 
-func init() { mcpTools = append(mcpTools, graphTools...) }
+func init() {
+	mcpTools = append(mcpTools, graphTools...)
+	for _, t := range mcpTools {
+		t.InputSchema["properties"].(map[string]any)["root"] = map[string]any{"type": "string",
+			"description": "Absolute path of the project folder, when it isn't the folder the client has open."}
+	}
+}
 
 func fileSchema(props map[string]any) map[string]any {
 	props["file"] = map[string]any{"type": "string", "description": "File path relative to the project root."}
@@ -258,10 +268,10 @@ func serveMCP(args []string, in io.Reader, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "sprout mcp:", err)
 		return 1
 	}
-	s := &mcpConn{root: root, explicit: len(args) > 0, enc: json.NewEncoder(out), errOut: errOut}
+	s := &mcpConn{root: root, fixed: len(args) > 0, enc: json.NewEncoder(out), errOut: errOut}
 	fmt.Fprintf(errOut, "sprout %s: MCP server on stdio, root %s\n", resolveVersion(), root)
 	if s.broad() {
-		fmt.Fprintf(errOut, "sprout mcp: %s isn't a project; tools will refuse it until the client names its open folder or you pass a path: sprout mcp /path/to/project\n", root)
+		fmt.Fprintf(errOut, "sprout mcp: %s isn't a project; tools will refuse it until the client names a project folder, a call passes root, or you pass a path: sprout mcp /path/to/project\n", root)
 	}
 
 	return s.run(readLines(in))
@@ -423,11 +433,12 @@ func printMCPConfig(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// mcpConn is one client connection. Its root can change once: when no
-// root was given, a client that supports MCP roots says which folder is open.
+// mcpConn is one client connection. Unless a root was given on the command
+// line, a client that supports MCP roots says which folder is open, and says
+// again when that changes.
 type mcpConn struct {
 	root     string
-	explicit bool         // given on the command line, or by the client
+	fixed    bool         // given on the command line: the client can't change it
 	canRoots bool         // the client answers roots/list
 	asked    int          // roots/list requests sent, with ids "roots-1", "roots-2"…
 	answered int          // and how many of them were answered
@@ -452,7 +463,7 @@ func (s *mcpConn) serve(req rpcRequest) error {
 	}
 	var result any
 	var rerr *rpcError
-	if req.Method == "tools/call" && s.broad() {
+	if req.Method == "tools/call" && s.broad() && callRoot(req) == "" {
 		result = toolResult(broadRootMessage, true)
 	} else {
 		result, rerr = handleMCP(s.root, req)
@@ -469,40 +480,69 @@ func (s *mcpConn) serve(req rpcRequest) error {
 	return s.enc.Encode(resp)
 }
 
-// askRoots asks the client which folders are open, unless a root was given.
+// askRoots asks the client which folders are open, unless a root was given
+// on the command line.
 func (s *mcpConn) askRoots() {
-	if s.explicit || !s.canRoots {
+	if s.fixed || !s.canRoots {
 		return
 	}
 	s.asked++
 	s.enc.Encode(map[string]any{"jsonrpc": "2.0", "id": fmt.Sprintf("roots-%d", s.asked), "method": "roots/list"})
 }
 
-// takeRoots serves the first local folder from a roots/list answer.
+// takeRoots serves the first project folder from a roots/list answer. A
+// client open only in the home folder or the filesystem root names no
+// project: that folder becomes the root, so tools refuse it (see broad)
+// rather than map it or fall back to wherever the server happened to start.
 func (s *mcpConn) takeRoots(id, result json.RawMessage) {
 	var name string
 	if json.Unmarshal(id, &name) != nil || !strings.HasPrefix(name, "roots-") {
 		return
 	}
 	s.answered++
-	if s.explicit {
+	if s.fixed {
 		return
 	}
 	var r struct {
-		Roots []struct {
-			URI string `json:"uri"`
-		} `json:"roots"`
+		Roots []mcpRoot `json:"roots"`
 	}
 	json.Unmarshal(result, &r)
-	for _, root := range r.Roots {
-		if dir, ok := fileURIPath(root.URI); ok {
-			if resolved, err := resolveRoot(dir); err == nil {
-				s.root, s.explicit = resolved, true
-				fmt.Fprintf(s.errOut, "sprout mcp: the client's open folder, root %s\n", resolved)
-				return
-			}
+	if dir := pickRoot(r.Roots); dir != "" && dir != s.root {
+		s.root = dir
+		if broadDir(dir) {
+			fmt.Fprintf(s.errOut, "sprout mcp: the client is open in %s, which isn't a project; tools will refuse it\n", dir)
+		} else {
+			fmt.Fprintf(s.errOut, "sprout mcp: the client's open folder, root %s\n", dir)
 		}
 	}
+}
+
+// mcpRoot is one folder from a client's roots/list answer.
+type mcpRoot struct {
+	URI string `json:"uri"`
+}
+
+// pickRoot is the first local folder among roots that isn't the home folder
+// or the filesystem root, else the first local folder at all, else "".
+func pickRoot(roots []mcpRoot) string {
+	first := ""
+	for _, root := range roots {
+		path, ok := fileURIPath(root.URI)
+		if !ok {
+			continue
+		}
+		dir, err := resolveRoot(path)
+		if err != nil {
+			continue
+		}
+		if !broadDir(dir) {
+			return dir
+		}
+		if first == "" {
+			first = dir
+		}
+	}
+	return first
 }
 
 // fileURIPath is the local path of a file:// URI.
@@ -519,22 +559,65 @@ func fileURIPath(uri string) (string, bool) {
 }
 
 // broad reports a root that is the whole filesystem or the home folder,
-// which the server reached only because the client started it there: mapping
-// it would walk hundreds of thousands of files nobody asked about.
+// reached because the client started the server there or is open there:
+// mapping it would walk hundreds of thousands of files nobody asked about,
+// private ones included. Only a root given on the command line is trusted.
 func (s *mcpConn) broad() bool {
-	if s.explicit {
-		return false
-	}
+	return !s.fixed && broadDir(s.root)
+}
+
+// broadDir reports whether dir, already resolved, is the filesystem root or
+// the home folder.
+func broadDir(dir string) bool {
 	home, _ := os.UserHomeDir()
 	if h, err := filepath.EvalSymlinks(home); err == nil {
 		home = h
 	}
-	return filepath.Dir(s.root) == s.root || s.root == home
+	return filepath.Dir(dir) == dir || dir == home
 }
 
-const broadRootMessage = "Sprout was started in the filesystem root or the home folder, not in a project, " +
-	"so it won't map it. Ask the user to give the server the project's path in its MCP config " +
-	`("args": ["mcp", "/path/to/project"]).`
+const broadRootMessage = "Sprout is open in the home folder or the filesystem root, not in a project, " +
+	"so it won't map it. Pass root, the project's absolute path, with this call. " +
+	"To fix it for good, start the agent inside the project folder, or give the server the path: " +
+	"claude mcp add sprout -- sprout mcp /path/to/project (or \"args\": [\"mcp\", \"/path/to/project\"] in an MCP config)."
+
+// callRoot is the root argument of a tools/call request, or "".
+func callRoot(req rpcRequest) string {
+	var p struct {
+		Arguments struct {
+			Root string `json:"root"`
+		} `json:"arguments"`
+	}
+	json.Unmarshal(req.Params, &p)
+	return p.Arguments.Root
+}
+
+// callRootDir checks a root argument: an absolute path, or one under ~, to
+// a folder that isn't the home folder or the filesystem root.
+func callRootDir(given string) (string, error) {
+	p := given
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		p = filepath.Join(home, p[1:])
+	}
+	if !filepath.IsAbs(p) {
+		return "", fmt.Errorf("root must be an absolute path, got %q", given)
+	}
+	dir, err := resolveRoot(p)
+	if err != nil {
+		return "", fmt.Errorf("root %q: %v", given, errReason(err))
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return "", fmt.Errorf("root %q isn't a folder", given)
+	}
+	if broadDir(dir) {
+		return "", fmt.Errorf("root %q is the home folder or the filesystem root, not a project", given)
+	}
+	return dir, nil
+}
 
 func handleMCP(root string, req rpcRequest) (any, *rpcError) {
 	switch req.Method {
@@ -594,6 +677,13 @@ func callTool(root string, tool mcpTool, raw json.RawMessage) (string, error) {
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return "", fmt.Errorf("invalid arguments: %v", err)
 		}
+	}
+	if a.Root != "" {
+		dir, err := callRootDir(a.Root)
+		if err != nil {
+			return "", err
+		}
+		root = dir
 	}
 	if tool.run != nil {
 		return callGraphTool(root, tool, a)
@@ -674,10 +764,21 @@ func callGraphTool(root string, tool mcpTool, a toolArgs) (string, error) {
 	}
 	var out, errOut bytes.Buffer
 	if code := tool.run(args, root, &out, &errOut); code != 0 {
-		msg := strings.ReplaceAll(errOut.String(), root+string(filepath.Separator), "")
-		return "", fmt.Errorf("%s", strings.TrimSpace(strings.ReplaceAll(msg, root, ".")))
+		return "", graphToolError(errOut.String(), root)
 	}
 	return mcpWords.Replace(out.String()), nil
+}
+
+// graphToolError is a graph tool's error with paths relative to root,
+// except that a file missing from the graph says which root was searched:
+// often it's the right file under the wrong root.
+func graphToolError(msg, root string) error {
+	msg = strings.ReplaceAll(msg, root+string(filepath.Separator), "")
+	msg = strings.TrimSpace(strings.ReplaceAll(msg, root, "."))
+	if strings.Contains(msg, "isn't in the dependency graph") {
+		msg += fmt.Sprintf(" (the project folder being served is %s; for another project, pass root)", root)
+	}
+	return fmt.Errorf("%s", msg)
 }
 
 func resolveRoot(root string) (string, error) {
@@ -693,9 +794,13 @@ func resolveRoot(root string) (string, error) {
 // are untrusted input.
 func confine(root, p string) (string, error) {
 	if filepath.IsAbs(p) {
-		return "", fmt.Errorf("path must be relative to the project root")
+		return "", fmt.Errorf("path %q must be relative to the project folder being served, %s; for another project, pass root", p, root)
 	}
 	resolved, err := filepath.EvalSymlinks(filepath.Join(root, p))
+	if errors.Is(err, fs.ErrNotExist) {
+		// Most often the agent's project isn't the folder sprout is serving.
+		return "", fmt.Errorf("%q isn't in %s, the project folder being served; for another project, pass root", p, root)
+	}
 	if err != nil {
 		return "", fmt.Errorf("path %q: %v", p, errReason(err))
 	}

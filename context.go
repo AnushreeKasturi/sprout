@@ -220,7 +220,9 @@ func usedSymbols(symbols []string, src string, names []string) []string {
 		case exact[m[1]] && !goMethod.MatchString(s):
 			out = append(out, s)
 		case goMethod.MatchString(s):
-			if r := goMethod.FindStringSubmatch(s); exact[r[1]] && wordIn(src, m[1]) {
+			// A method on a used type that src calls, or one named exactly
+			// (declared here on a type from elsewhere).
+			if r := goMethod.FindStringSubmatch(s); exact[r[1]] && wordIn(src, m[1]) || exact[m[1]] {
 				out = append(out, s)
 			}
 		}

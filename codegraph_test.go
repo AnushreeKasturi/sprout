@@ -1,6 +1,7 @@
 package main
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -156,5 +157,30 @@ func TestTrimDecl(t *testing.T) {
 		if got := trimDecl(in); got != want {
 			t.Errorf("trimDecl(%q)\n got  %q\n want %q", in, got, want)
 		}
+	}
+}
+
+// A method declared in one file on a type from another is named in the
+// caller's "uses", as a function would be; methods on the file's own types
+// are covered by the type's name.
+func TestGoUsesMethodsOnOtherFilesTypes(t *testing.T) {
+	g := graphFor(t, map[string]string{
+		"go.mod": "module example.com/app\n",
+		"resolver.go": "package main\ntype resolver struct{}\nfunc load() resolver { return resolver{} }\n" +
+			"func main() { r := load(); r.probe(); var s store; s.save() }\n",
+		"probe.go": "package main\nfunc (r resolver) probe() {}\nfunc (r *resolver) unused() {}\n" +
+			"type store struct{}\nfunc (s store) save() {}\nfunc helper() {}\n",
+	})
+	from, _ := g.ID("resolver.go")
+	to, _ := g.ID("probe.go")
+	names := g.UsedNames(from, to)
+	if !slices.Contains(names, "probe") {
+		t.Errorf("method on another file's type not named: %v", names)
+	}
+	if slices.Contains(names, "unused") || slices.Contains(names, "save") {
+		t.Errorf("named a method it doesn't call, or one on probe.go's own type: %v", names)
+	}
+	if why := g.Why(from, to); !strings.Contains(why, "probe") || !strings.Contains(why, "store") {
+		t.Errorf("reason: %q", why)
 	}
 }
