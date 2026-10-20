@@ -551,13 +551,7 @@ func linkGo(b *graphBuilder, facts []fileFacts, r resolver) {
 				}
 			}
 		}
-		for name := range gf.called {
-			for _, t := range methods[k][name] {
-				if t != id {
-					b.link(id, t)
-				}
-			}
-		}
+		linkMethodCalls(b, id, gf.called, methods[k])
 
 		local := map[string]string{} // name the file refers to a package by -> its dir
 		for _, imp := range gf.imports {
@@ -600,6 +594,17 @@ func linkGo(b *graphBuilder, facts []fileFacts, r resolver) {
 				for _, t := range pkgFiles[dir] {
 					b.link(id, t)
 				}
+			}
+		}
+	}
+}
+
+// linkMethodCalls links id to the files declaring the methods it calls.
+func linkMethodCalls(b *graphBuilder, id FileID, called map[string]bool, methods map[string][]FileID) {
+	for name := range called {
+		for _, t := range methods[name] {
+			if t != id {
+				b.link(id, t)
 			}
 		}
 	}
