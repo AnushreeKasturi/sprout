@@ -31,29 +31,35 @@ type goDecl struct {
 func packageDecls(root, dir string, g *Graph) []goDecl {
 	var decls []goDecl
 	for _, f := range g.Files {
-		if path.Dir(f.Rel) != dir || !strings.HasSuffix(f.Rel, ".go") {
-			continue
+		if path.Dir(f.Rel) == dir && strings.HasSuffix(f.Rel, ".go") {
+			decls = append(decls, fileDecls(root, f.Rel)...)
 		}
-		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(f.Rel)))
-		if err != nil {
-			continue
+	}
+	return decls
+}
+
+// fileDecls are the declarations of one Go file.
+func fileDecls(root, rel string) []goDecl {
+	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return nil
+	}
+	file, err := parser.ParseFile(token.NewFileSet(), rel, src, 0)
+	if err != nil {
+		return nil
+	}
+	top := map[any]bool{}
+	for _, d := range file.Decls {
+		for _, node := range declNodes(d) {
+			top[node] = true
 		}
-		file, err := parser.ParseFile(token.NewFileSet(), f.Rel, src, 0)
-		if err != nil {
-			continue
-		}
-		top := map[any]bool{}
-		for _, d := range file.Decls {
-			for _, node := range declNodes(d) {
-				top[node] = true
-			}
-		}
-		for _, d := range file.Decls {
-			for name, node := range declNodes(d) {
-				refs := declRefs(node, top)
-				delete(refs, name)
-				decls = append(decls, goDecl{f.Rel, name, refs})
-			}
+	}
+	var decls []goDecl
+	for _, d := range file.Decls {
+		for name, node := range declNodes(d) {
+			refs := declRefs(node, top)
+			delete(refs, name)
+			decls = append(decls, goDecl{rel, name, refs})
 		}
 	}
 	return decls
@@ -395,36 +401,27 @@ func exportedKeys(hit map[string]bool) map[string]bool {
 // mention one of keys, with the names they mention. A method call counts
 // too, which the graph's reasons don't see: x.Name() on a type from dir.
 func importersUsing(root string, g *Graph, dir string, keys map[string]bool) ([]FileID, map[FileID][]string) {
-	byDir := map[string][]FileID{}
 	seen := map[FileID]bool{}
+	var files []FileID
+	used := map[FileID][]string{}
 	for i, f := range g.Files {
 		if path.Dir(f.Rel) != dir {
 			continue
 		}
 		for _, c := range g.Dependents(FileID(i)) {
-			if cd := path.Dir(g.Files[c].Rel); cd != dir && !seen[c] {
-				seen[c] = true
-				byDir[cd] = append(byDir[cd], c)
-			}
-		}
-	}
-	var files []FileID
-	used := map[FileID][]string{}
-	for cd, ids := range byDir {
-		for _, d := range packageDecls(root, cd, g) {
-			id, ok := g.ID(d.file)
-			if !ok || !seen[id] {
+			if path.Dir(g.Files[c].Rel) == dir || seen[c] {
 				continue
 			}
-			for k := range d.refs {
-				if n := strings.TrimPrefix(k, "."); keys[k] && !slices.Contains(used[id], n) {
-					used[id] = append(used[id], n)
+			seen[c] = true
+			for _, d := range fileDecls(root, g.Files[c].Rel) {
+				for k := range d.refs {
+					if n := strings.TrimPrefix(k, "."); keys[k] && !slices.Contains(used[c], n) {
+						used[c] = append(used[c], n)
+					}
 				}
 			}
-		}
-		for _, id := range ids {
-			if used[id] != nil {
-				files = append(files, id)
+			if used[c] != nil {
+				files = append(files, c)
 			}
 		}
 	}
