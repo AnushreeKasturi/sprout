@@ -334,3 +334,30 @@ func TestImpactSymbolAcrossPackages(t *testing.T) {
 		}
 	}
 }
+
+// TestImpactCommitEdges: a first commit has changes too, an unknown commit
+// is named as typed, and a shallow clone missing the parent is an error
+// rather than "nothing changed".
+func TestImpactCommitEdges(t *testing.T) {
+	dir := impactRepo(t) // one commit
+	chdir(t, dir)
+	if out, _, _ := runCLI(t, "impact", "--commit", "HEAD"); !strings.Contains(out, "a/a.go") {
+		t.Errorf("a first commit should list its files:\n%s", out)
+	}
+	if _, errOut, _ := runCLI(t, "impact", "--commit", "HEAD~5"); !strings.Contains(errOut, `no commit "HEAD~5"`) {
+		t.Errorf("unknown commit: %s", errOut)
+	}
+
+	write(t, dir, "a/a.go", "package a\n\nfunc Hello() string { return \"hi\" }\n")
+	git(t, dir, "commit", "-qam", "two")
+	shallow := filepath.Join(t.TempDir(), "shallow")
+	u := filepath.ToSlash(dir)
+	if !strings.HasPrefix(u, "/") {
+		u = "/" + u // Windows: file:///C:/...
+	}
+	git(t, dir, "clone", "-q", "--depth", "1", "file://"+u, shallow)
+	chdir(t, shallow)
+	if _, errOut, code := runCLI(t, "impact", "--commit", "HEAD"); code != 1 || !strings.Contains(errOut, "shallow clone") {
+		t.Errorf("shallow clone: exit %d, %s", code, errOut)
+	}
+}

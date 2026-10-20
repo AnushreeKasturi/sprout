@@ -207,10 +207,9 @@ func gitChanges(root string, staged bool, diff, commit string) (source string, c
 		codes, err = repo.changedIn(diff)
 	case commit != "":
 		source = "commit " + commit
-		if strings.HasPrefix(commit, "-") {
-			err = fmt.Errorf("invalid revision %q", commit)
-		} else {
-			codes, err = repo.changedIn(commit + "^!")
+		var rev string
+		if rev, err = commitDiff(repo, commit); err == nil {
+			codes, err = repo.changedIn(rev)
 		}
 	default:
 		source = "uncommitted changes"
@@ -229,6 +228,26 @@ func gitChanges(root string, staged bool, diff, commit string) (source string, c
 	sort.Strings(changed)
 	sort.Strings(deleted)
 	return source, changed, deleted, nil
+}
+
+// commitDiff is what to diff for one commit's changes: against its parents,
+// or for a first commit, against nothing. A shallow clone that lacks the
+// parent is an error, not "nothing changed": CI checkouts are shallow.
+func commitDiff(repo *gitRepo, commit string) (string, error) {
+	if strings.HasPrefix(commit, "-") {
+		return "", fmt.Errorf("invalid revision %q", commit)
+	}
+	if _, err := repo.run("rev-parse", "--verify", "--quiet", commit+"^{commit}"); err != nil {
+		return "", fmt.Errorf("no commit %q in this repository", commit)
+	}
+	if _, err := repo.run("rev-parse", "--verify", "--quiet", commit+"^"); err == nil {
+		return commit + "^!", nil
+	}
+	if out, _ := repo.run("rev-parse", "--is-shallow-repository"); strings.TrimSpace(out) == "true" {
+		return "", fmt.Errorf("the commit before %s isn't in this shallow clone; fetch it (git fetch --deepen=1), or check out with fetch-depth: 2", commit)
+	}
+	// ponytail: git's empty tree in SHA-1; a SHA-256 repository's first commit would need its own.
+	return "4b825dc642cb6eb9a060e54bf8d69288fbee4904.." + commit, nil
 }
 
 // traceImpact fills res from the changed files: what's in the graph, what

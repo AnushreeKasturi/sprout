@@ -410,6 +410,9 @@ sprout impact --diff origin/main...HEAD --json |
   xargs go test
 ```
 
+CI checkouts are shallow by default, so the branch's base isn't there: in
+GitHub Actions, check out with `fetch-depth: 0` (or `2` for `--commit HEAD`).
+
 Example output from `sprout dependents graph.go --json`, trimmed:
 
 ```json
