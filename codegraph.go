@@ -379,10 +379,20 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 		return nil, nil
 	}
 	gf := &goFacts{pkg: file.Name.Name, uses: map[string]bool{}, called: map[string]bool{}, selectors: map[[2]string]bool{}}
-	// Only selectors that could be on an imported package are kept: every
-	// file's selectors are held until linking, so this bounds memory. If a
-	// package's name isn't guessable from its path, its import falls back to
-	// depending on the whole package, so nothing is lost.
+	goRefs(file, gf, goImports(file, gf))
+	goDeclares(file, gf)
+	if !wantSymbols {
+		return nil, gf
+	}
+	return goSignatures(fset, file), gf
+}
+
+// goImports records file's imports in gf and returns the names they may be
+// referred to by. Only selectors that could be on an imported package are
+// kept: every file's selectors are held until linking, so this bounds
+// memory. If a package's name isn't guessable from its path, its import
+// falls back to depending on the whole package, so nothing is lost.
+func goImports(file *ast.File, gf *goFacts) map[string]bool {
 	pkgNames := map[string]bool{}
 	for _, imp := range file.Imports {
 		gi := goImport{path: strings.Trim(imp.Path.Value, `"`)}
@@ -396,7 +406,11 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 		}
 		gf.imports = append(gf.imports, gi)
 	}
-	goRefs(file, gf, pkgNames)
+	return pkgNames
+}
+
+// goDeclares records file's top-level names and methods in gf.
+func goDeclares(file *ast.File, gf *goFacts) {
 	for _, d := range file.Decls {
 		switch d := d.(type) {
 		case *ast.FuncDecl:
@@ -420,11 +434,12 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 			}
 		}
 	}
-	if !wantSymbols {
-		return nil, gf
-	}
-	// Exported API first; a program's unexported functions come after,
-	// since in package main nothing is exported.
+}
+
+// goSignatures are file's function and type signatures: exported API
+// first; a program's unexported functions come after, since in package
+// main nothing is exported.
+func goSignatures(fset *token.FileSet, file *ast.File) []string {
 	var symbols, private []string
 	for _, d := range file.Decls {
 		switch d := d.(type) {
@@ -450,7 +465,7 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 			}
 		}
 	}
-	return append(symbols, private...), gf
+	return append(symbols, private...)
 }
 
 // goRefs records what file refers to in gf: the package-level names it
