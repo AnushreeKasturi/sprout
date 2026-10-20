@@ -565,7 +565,8 @@ func printGoTests(w io.Writer, res impactResult, all bool) bool {
 	var whole []string
 	for _, p := range res.GoPackages {
 		if tests := res.GoRun[p]; tests != nil {
-			fmt.Fprintf(w, "  go test %s -run '^(%s)$'\n", p, strings.Join(tests, "|"))
+			// Double quotes keep the | from piping in bash, PowerShell and cmd alike.
+			fmt.Fprintf(w, "  go test %s -run \"^(%s)$\"\n", p, strings.Join(tests, "|"))
 		} else {
 			whole = append(whole, p)
 		}
