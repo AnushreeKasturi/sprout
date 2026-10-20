@@ -591,10 +591,12 @@ func broadDir(dir string) bool {
 	return filepath.Dir(dir) == dir || dir == home
 }
 
+// broadRootMessage is for the agent: pass root now, and for good, open the
+// session in the project. It doesn't suggest registering the server with a
+// path: with the Claude Code plugin that would add the tools a second time.
 const broadRootMessage = "Sprout is open in the home folder or the filesystem root, not in a project, " +
 	"so it won't map it. Pass root, the project's absolute path, with this call. " +
-	"To fix it for good, start the agent inside the project folder, or give the server the path: " +
-	"claude mcp add sprout -- sprout mcp /path/to/project (or \"args\": [\"mcp\", \"/path/to/project\"] in an MCP config)."
+	"To fix it for good, open the session inside the project folder."
 
 // callRoot is the root argument of a tools/call request, or "".
 func callRoot(req rpcRequest) string {

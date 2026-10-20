@@ -468,7 +468,12 @@ func recvType(recv *ast.FieldList) string {
 	if len(recv.List) == 0 {
 		return ""
 	}
-	t := recv.List[0].Type
+	return typeName(recv.List[0].Type)
+}
+
+// typeName is the name of a type of this package: T for T, *T or T[K], and
+// "" for anything else, such as pkg.T or []T.
+func typeName(t ast.Expr) string {
 	if star, ok := t.(*ast.StarExpr); ok {
 		t = star.X
 	}

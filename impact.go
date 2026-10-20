@@ -28,8 +28,10 @@ type impactResult struct {
 	Tests         []string            `json:"tests"`
 	GoPackages    []string            `json:"goTestPackages,omitempty"`
 	GoRun         map[string][]string `json:"goTestRun,omitempty"` // package -> the only tests that reach the change
-	Symbol        string              `json:"symbol,omitempty"`
-	TestCommands  []testCmd           `json:"testCommands,omitempty"` // Python and JS/TS tests, by project
+
+	goReach      map[string][2]int // package not narrowed -> how many of its tests reach the change, of all
+	Symbol       string            `json:"symbol,omitempty"`
+	TestCommands []testCmd         `json:"testCommands,omitempty"` // Python and JS/TS tests, by project
 
 	base string // with nothing uncommitted: the branch to suggest --diff against
 }
@@ -289,7 +291,7 @@ func traceImpact(g *Graph, res *impactResult, root string, changed, deleted []st
 	if depth >= 0 {
 		full = nil // cut short: importers can't be told safe to narrow
 	}
-	res.GoRun = goTestRun(root, g, res.Changed, res.Symbol, full)
+	res.GoRun, res.goReach = goTestRun(root, g, res.Changed, res.Symbol, full)
 	res.TestCommands = testCommands(root, res.Tests)
 }
 
@@ -598,6 +600,12 @@ func printGoTests(w io.Writer, res impactResult, all bool) bool {
 	}
 	if len(whole) > 0 {
 		printCommand(w, lines)
+	}
+	// Say why a package isn't narrowed, so the command isn't taken for a guess.
+	for _, p := range whole {
+		if r, ok := res.goReach[p]; ok {
+			fmt.Fprintf(w, "  (%s: %d of its %d tests reach the change, so it runs whole)\n", p, r[0], r[1])
+		}
 	}
 	return true
 }

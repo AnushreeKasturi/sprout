@@ -361,3 +361,35 @@ func TestImpactCommitEdges(t *testing.T) {
 		t.Errorf("shallow clone: exit %d, %s", code, errOut)
 	}
 }
+
+// TestImpactSymbolMethodsByType: a method call on a receiver, parameter or
+// local of a known type reaches only that type's method; an untyped one
+// still reaches any method of that name. Callers in the symbol's own file
+// count, and a package left whole says how many of its tests reach.
+func TestImpactSymbolMethodsByType(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module ex\n\ngo 1.22\n")
+	write(t, dir, "target.go", "package ex\n\nfunc Target() {}\n\nfunc caller() { Target() }\n")
+	write(t, dir, "conn.go", "package ex\n\ntype Conn struct{}\n\nfunc (c *Conn) run() { Target() }\n")
+	write(t, dir, "repo.go", "package ex\n\ntype Repo struct{}\n\nfunc (r *Repo) run() {}\n\n"+
+		"func (r *Repo) Branch() { r.run() }\n\nfunc newRepo() (*Repo, error) { return &Repo{}, nil }\n\n"+
+		"func made() { x, _ := newRepo(); x.run() }\n\nfunc literal() { y := &Repo{}; y.run() }\n")
+	write(t, dir, "any.go", "package ex\n\nfunc untyped(x interface{ run() }) { x.run() }\n")
+	write(t, dir, "ex_test.go", "package ex\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) { caller() }\n\n"+
+		"func TestB(t *testing.T) { untyped(&Conn{}) }\n\nfunc TestC(t *testing.T) { made() }\n")
+	chdir(t, dir)
+
+	out, errOut, code := runCLI(t, "impact", "target.go", "--symbol", "Target", "--all")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	for _, want := range []string{"target.go  in caller", "conn.go    in Conn.run", "any.go     in untyped",
+		"(.: 2 of its 3 tests reach the change, so it runs whole)"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "repo.go") {
+		t.Errorf("Repo's run isn't Conn's, however it's reached:\n%s", out)
+	}
+}
