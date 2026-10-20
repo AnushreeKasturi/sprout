@@ -37,6 +37,9 @@ import {
 export {c} from "./reexport";
 const s = "// not a comment"; import('./lazy');
 const re = require('./cjs');
+const fixture = ` + "`" + `
+import {gen} from './generated';
+` + "`" + `;
 `)
 	got := jsImports(src)
 	slices.Sort(got)

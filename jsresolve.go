@@ -28,8 +28,10 @@ func jsImports(src []byte) []string {
 	return specs
 }
 
-// stripJSComments blanks // and /* */ comments, leaving string and template
-// literals alone and every newline in place.
+// stripJSComments blanks // and /* */ comments, and the text of template
+// literals, which can hold code written elsewhere, like a test's fixture,
+// but never this file's own imports. Strings stay, and every newline stays in place.
+// ponytail: a ${} expression is blanked too; a dynamic import() inside one is lost.
 func stripJSComments(src []byte) []byte {
 	out := make([]byte, len(src))
 	copy(out, src)
@@ -41,6 +43,8 @@ func stripJSComments(src []byte) []byte {
 					i++
 				} else if out[i] == '\n' && c != '`' {
 					break // an unterminated string ends at the line
+				} else if c == '`' && out[i] != '\n' {
+					out[i] = ' '
 				}
 			}
 		case c == '/' && i+1 < len(out) && out[i+1] == '/':

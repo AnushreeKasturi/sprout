@@ -267,11 +267,11 @@ func TestImpactNarrowsGoTests(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out, "go test . -run '^(TestA)$'") || strings.Contains(out, "c.go") {
+	if !strings.Contains(out, `go test . -run "^(TestA)$"`) || strings.Contains(out, "c.go") {
 		t.Errorf("--symbol A should run TestA alone and leave c.go out:\n%s", out)
 	}
 	out, _, _ = runCLI(t, "impact", "c.go")
-	if !strings.Contains(out, "go test . -run '^(TestC)$'") {
+	if !strings.Contains(out, `go test . -run "^(TestC)$"`) {
 		t.Errorf("c.go should narrow to TestC:\n%s", out)
 	}
 	out, _, _ = runCLI(t, "impact", "a.go", "--symbol", "B")

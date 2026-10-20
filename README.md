@@ -206,7 +206,7 @@ Impact of SetContext
 Affected: 0 files
 
 Tests: 1 file, 1 Go package
-  go test . -run '^(TestSetContext|TestSetContextPersistentPreRun|TestSetContextPreRun|TestSetContextPreRunOverwrite)$'
+  go test . -run "^(TestSetContext|TestSetContextPersistentPreRun|TestSetContextPreRun|TestSetContextPreRunOverwrite)$"
 ```
 
 That's 4 of cobra's 260 tests.
