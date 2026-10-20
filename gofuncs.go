@@ -194,8 +194,9 @@ func goPkg(dir string) string {
 }
 
 // goTestRun narrows go test, package by package, to the tests that reach
-// the changed Go files' declarations, or symbol alone when given.
-func goTestRun(root string, g *Graph, changed []string, symbol string) map[string][]string {
+// the changed Go files' declarations, or symbol alone when given: in the
+// changed packages, and in the packages importing them directly.
+func goTestRun(root string, g *Graph, changed []string, symbol string, affected []queryHit) map[string][]string {
 	dirs := map[string]bool{}
 	for _, rel := range changed {
 		if strings.HasSuffix(rel, ".go") {
@@ -203,6 +204,7 @@ func goTestRun(root string, g *Graph, changed []string, symbol string) map[strin
 		}
 	}
 	run := map[string][]string{}
+	var exported []string // what importers can use, as exportedKeys
 	for dir := range dirs {
 		decls := packageDecls(root, dir, g)
 		var names []string
@@ -214,7 +216,17 @@ func goTestRun(root string, g *Graph, changed []string, symbol string) map[strin
 		if symbol != "" {
 			names = symbolKeys(decls, changed[0], symbol)
 		}
-		if tests := testsReaching(decls, reaching(decls, names)); tests != nil {
+		hit := reaching(decls, names)
+		if tests := testsReaching(decls, hit); tests != nil {
+			run[goPkg(dir)] = tests
+		}
+		for k := range exportedKeys(hit) {
+			exported = append(exported, k)
+		}
+	}
+	for _, dir := range directImporters(g, dirs, affected) {
+		decls := packageDecls(root, dir, g)
+		if tests := testsReaching(decls, reaching(decls, exported)); tests != nil {
 			run[goPkg(dir)] = tests
 		}
 	}
@@ -222,6 +234,41 @@ func goTestRun(root string, g *Graph, changed []string, symbol string) map[strin
 		return nil
 	}
 	return run
+}
+
+// directImporters are the affected Go packages that reach the changed
+// packages only directly. One that also reaches them through another
+// affected package can have tests affected without naming anything changed,
+// so it's tested whole.
+func directImporters(g *Graph, changed map[string]bool, affected []queryHit) []string {
+	isAffected := map[string]bool{}
+	for _, h := range affected {
+		isAffected[h.Path] = true
+	}
+	safe := map[string]bool{}
+	for _, h := range affected {
+		dir := path.Dir(h.Path)
+		if changed[dir] || !strings.HasSuffix(h.Path, ".go") {
+			continue
+		}
+		if _, seen := safe[dir]; !seen {
+			safe[dir] = true
+		}
+		for _, d := range g.Deps(h.id) {
+			dd := path.Dir(g.Files[d].Rel)
+			if dd != dir && !changed[dd] && isAffected[g.Files[d].Rel] {
+				safe[dir] = false
+			}
+		}
+	}
+	var out []string
+	for dir, ok := range safe {
+		if ok {
+			out = append(out, dir)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // symbolImpact is what changing one declaration reaches: the files of its
@@ -243,20 +290,14 @@ func symbolImpact(root string, g *Graph, id FileID, symbol string, depth int) []
 		}
 		hits = append(hits, h)
 	}
-	pkg := []FileID{id}
 	for _, f := range files {
 		fid, _ := g.ID(f)
 		add(queryHit{Path: f, Depth: depthIf(direct[f]), Reason: "in " + someOf(names[f]), id: fid, from: id})
-		pkg = append(pkg, fid)
 	}
-	var outside []FileID
-	for _, p := range pkg {
-		for _, c := range g.Dependents(p) {
-			if !seen[c] && path.Dir(g.Files[c].Rel) != dir && usesAny(g.UsedNames(c, p), hit) {
-				add(queryHit{Path: g.Files[c].Rel, Depth: depthIf(p == id), id: c, from: p})
-				outside = append(outside, c)
-			}
-		}
+	outside, used := importersUsing(root, g, dir, exportedKeys(hit))
+	for _, c := range outside {
+		depth := depthIf(slices.Contains(used[c], symbol))
+		add(queryHit{Path: g.Files[c].Rel, Depth: depth, Reason: "uses " + someOf(used[c]), id: c, from: id})
 	}
 	for _, h := range follow(g, outside, true, -1, false) {
 		if !seen[h.id] && path.Dir(h.Path) != dir {
@@ -336,6 +377,58 @@ func declaresWord(root, rel, name string) bool {
 		}
 	}
 	return false
+}
+
+// exportedKeys are the names in hit another package can use, keyed as its
+// references are: ".Name", for pkg.Name and x.Name() alike.
+func exportedKeys(hit map[string]bool) map[string]bool {
+	keys := map[string]bool{}
+	for name := range hit {
+		if n := strings.TrimPrefix(name, "."); ast.IsExported(n) {
+			keys["."+n] = true
+		}
+	}
+	return keys
+}
+
+// importersUsing are the files of other packages that depend on dir's and
+// mention one of keys, with the names they mention. A method call counts
+// too, which the graph's reasons don't see: x.Name() on a type from dir.
+func importersUsing(root string, g *Graph, dir string, keys map[string]bool) ([]FileID, map[FileID][]string) {
+	byDir := map[string][]FileID{}
+	seen := map[FileID]bool{}
+	for i, f := range g.Files {
+		if path.Dir(f.Rel) != dir {
+			continue
+		}
+		for _, c := range g.Dependents(FileID(i)) {
+			if cd := path.Dir(g.Files[c].Rel); cd != dir && !seen[c] {
+				seen[c] = true
+				byDir[cd] = append(byDir[cd], c)
+			}
+		}
+	}
+	var files []FileID
+	used := map[FileID][]string{}
+	for cd, ids := range byDir {
+		for _, d := range packageDecls(root, cd, g) {
+			id, ok := g.ID(d.file)
+			if !ok || !seen[id] {
+				continue
+			}
+			for k := range d.refs {
+				if n := strings.TrimPrefix(k, "."); keys[k] && !slices.Contains(used[id], n) {
+					used[id] = append(used[id], n)
+				}
+			}
+		}
+		for _, id := range ids {
+			if used[id] != nil {
+				files = append(files, id)
+			}
+		}
+	}
+	return files, used
 }
 
 // symbolKeys are the keys of what the Go file rel declares as name: a

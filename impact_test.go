@@ -267,11 +267,11 @@ func TestImpactNarrowsGoTests(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
-	if !strings.Contains(out, "go test . -run '^(TestA)$'") || strings.Contains(out, "c.go") {
+	if !strings.Contains(out, `go test . -run "^(TestA)$"`) || strings.Contains(out, "c.go") {
 		t.Errorf("--symbol A should run TestA alone and leave c.go out:\n%s", out)
 	}
 	out, _, _ = runCLI(t, "impact", "c.go")
-	if !strings.Contains(out, "go test . -run '^(TestC)$'") {
+	if !strings.Contains(out, `go test . -run "^(TestC)$"`) {
 		t.Errorf("c.go should narrow to TestC:\n%s", out)
 	}
 	out, _, _ = runCLI(t, "impact", "a.go", "--symbol", "B")
@@ -310,5 +310,27 @@ func TestImpactPytestFixturesAndSymbol(t *testing.T) {
 	}
 	if _, errOut, code := runCLI(t, "impact", "app/crud.py", "--symbol", "nope"); code != 2 || !strings.Contains(errOut, "doesn't declare nope") {
 		t.Errorf("unknown symbol: exit %d, %s", code, errOut)
+	}
+}
+
+// TestImpactSymbolAcrossPackages: --symbol reaches other packages through
+// method calls too, which name no package, and narrows their tests.
+func TestImpactSymbolAcrossPackages(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module ex\n\ngo 1.22\n")
+	write(t, dir, "a/a.go", "package a\n\ntype T struct{}\n\nfunc (T) Name() string { return \"t\" }\n\nfunc (T) Other() int { return 1 }\n")
+	write(t, dir, "b/b.go", "package b\n\nimport \"ex/a\"\n\nfunc Use(t a.T) string { return t.Name() }\n\nfunc Count(t a.T) int { return t.Other() }\n")
+	write(t, dir, "b/b_test.go", "package b\n\nimport (\n\t\"testing\"\n\n\t\"ex/a\"\n)\n\n"+
+		"func TestUse(t *testing.T) { Use(a.T{}) }\n\nfunc TestCount(t *testing.T) { Count(a.T{}) }\n\nfunc TestNone(t *testing.T) {}\n")
+	chdir(t, dir)
+
+	out, errOut, code := runCLI(t, "impact", "a/a.go", "--symbol", "Name")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	for _, want := range []string{"b/b.go  uses Name", "go test ./b -run ", "^(TestUse)$"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
 	}
 }
