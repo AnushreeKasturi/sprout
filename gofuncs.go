@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strings"
@@ -288,6 +289,53 @@ func filesReaching(decls []goDecl, rel string, seeds []string, hit map[string]bo
 		}
 	}
 	return files, names, direct
+}
+
+// mentionImpact is --symbol outside Go, where Sprout doesn't trace code
+// function by function: the files depending on id that mention symbol as a
+// word, and what depends on them.
+// ponytail: a mention, not a resolved use: a comment or a local of the same
+// name counts too, erring towards more tests.
+func mentionImpact(root string, g *Graph, id FileID, symbol string, depth int) []queryHit {
+	word := regexp.MustCompile(`\b` + regexp.QuoteMeta(symbol) + `\b`)
+	seen := map[FileID]bool{id: true}
+	var direct []FileID
+	var hits []queryHit
+	for _, c := range g.Dependents(id) {
+		if src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(g.Files[c].Rel))); err == nil && word.Match(src) {
+			seen[c] = true
+			direct = append(direct, c)
+			hits = append(hits, queryHit{Path: g.Files[c].Rel, Depth: 1, Test: g.Files[c].Test, id: c, from: id})
+		}
+	}
+	if depth != 1 {
+		for _, h := range follow(g, direct, true, -1, false) {
+			if !seen[h.id] && (depth < 0 || h.Depth < depth) {
+				h.Depth++
+				h.Via = g.Files[h.from].Rel
+				hits = append(hits, h)
+			}
+		}
+	}
+	sortHits(hits)
+	return hits
+}
+
+// declaresWord reports whether one of the declarations Sprout reads in a
+// non-Go file has name in its signature.
+func declaresWord(root, rel, name string) bool {
+	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	if err != nil {
+		return false
+	}
+	word := regexp.MustCompile(`\b` + regexp.QuoteMeta(name) + `\b`)
+	symbols, _ := scanDecls(langOf(rel), src, true)
+	for _, s := range symbols {
+		if word.MatchString(s) {
+			return true
+		}
+	}
+	return false
 }
 
 // symbolKeys are the keys of what the Go file rel declares as name: a

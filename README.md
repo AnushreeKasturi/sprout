@@ -195,7 +195,10 @@ In Go, it also follows the change function by function within its package,
 so `go test` gets a `-run` with only the tests that reach it, when that's
 under half of them. For one function, method, type or variable, add
 `--symbol NAME`: only the code and tests that use it, directly or through
-other functions.
+other functions. In other languages `--symbol` keeps the files that import
+the changed one and mention the name, and what depends on them. Python tests
+also reach code through `conftest.py`, whose fixtures pytest gives to every
+test below it.
 
 ```
 $ sprout impact command.go --symbol SetContext   # in cobra

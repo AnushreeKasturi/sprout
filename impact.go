@@ -53,11 +53,11 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	commit := fs.String("commit", "", "the changes in one commit, e.g. HEAD")
 	depth := fs.Int("depth", -1, "how many hops of dependents to follow (-1 for all)")
 	all := fs.Bool("all", false, "list every affected file, not just direct dependents")
-	symbol := fs.String("symbol", "", "only what uses this function, type or variable of a Go file")
+	symbol := fs.String("symbol", "", "only what uses this function, type or variable of the file")
 	asJSON := fs.Bool("json", false, "print JSON")
 	files, err := parseFiles(fs, args)
 	if err == flag.ErrHelp {
-		fmt.Fprint(stdout, "Usage: sprout impact [FILE...] [--staged | --diff REV | --commit REV] [--symbol NAME] [--depth N] [--all] [--json]\n\nWith no files, the uncommitted changes, untracked files included.\n--symbol narrows one Go file's impact to what uses NAME.\n")
+		fmt.Fprint(stdout, "Usage: sprout impact [FILE...] [--staged | --diff REV | --commit REV] [--symbol NAME] [--depth N] [--all] [--json]\n\nWith no files, the uncommitted changes, untracked files included.\n--symbol narrows one file's impact to what uses NAME.\n")
 		return 0
 	}
 	if err != nil {
@@ -115,14 +115,15 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// checkSymbol checks that a --symbol is declared in the one Go file named.
+// checkSymbol checks that a --symbol is declared in the one file named.
 func checkSymbol(root string, g *Graph, changed []string, symbol string) error {
 	switch {
 	case symbol == "":
 		return nil
-	case len(changed) != 1 || !strings.HasSuffix(changed[0], ".go"):
-		return fmt.Errorf("--symbol needs one Go file, e.g. sprout impact store.go --symbol Save")
-	case symbolKeys(packageDecls(root, path.Dir(changed[0]), g), changed[0], symbol) == nil:
+	case len(changed) != 1 || langOf(changed[0]) == "":
+		return fmt.Errorf("--symbol needs one source file, e.g. sprout impact store.go --symbol Save")
+	case strings.HasSuffix(changed[0], ".go") && symbolKeys(packageDecls(root, path.Dir(changed[0]), g), changed[0], symbol) == nil,
+		!strings.HasSuffix(changed[0], ".go") && !declaresWord(root, changed[0], symbol):
 		return fmt.Errorf("%s doesn't declare %s", changed[0], symbol)
 	}
 	return nil
@@ -243,8 +244,10 @@ func traceImpact(g *Graph, res *impactResult, root string, changed, deleted []st
 			res.Untracked = append(res.Untracked, rel)
 		}
 	}
-	if res.Symbol != "" {
+	if res.Symbol != "" && strings.HasSuffix(res.Changed[0], ".go") {
 		res.Affected = symbolImpact(root, g, ids[0], res.Symbol, depth)
+	} else if res.Symbol != "" {
+		res.Affected = mentionImpact(root, g, ids[0], res.Symbol, depth)
 	} else {
 		res.Affected = follow(g, ids, true, depth, false)
 	}
