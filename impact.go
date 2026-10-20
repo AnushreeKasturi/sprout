@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"os"
 	"path"
@@ -377,13 +378,46 @@ func testRunner(root, dir, lang string) []string {
 }
 
 // projectGraph builds the dependency graph of root, tests included; with
-// symbols, each file keeps its declarations' signatures.
+// symbols, each file keeps its declarations' signatures. The last graph of
+// each kind is kept, and reused while no file under root was added,
+// removed, resized or modified: the MCP server answers call after call on
+// one project, and walking the tree costs far less than parsing it. Not
+// safe for concurrent use; the server answers one call at a time.
 func projectGraph(root string, symbols bool) (*Graph, error) {
 	tree, err := BuildTree(root, Options{MaxDepth: -1, ShowHidden: true, Stat: true})
 	if err != nil {
 		return nil, err
 	}
-	return buildGraph(root, tree, true, symbols), nil
+	fp := fingerprint(root, tree.Root)
+	if c := graphCache[symbols]; c.g != nil && c.fp == fp {
+		return c.g, nil
+	}
+	g := buildGraph(root, tree, true, symbols)
+	graphCache[symbols] = cachedGraph{fp, g}
+	return g, nil
+}
+
+type cachedGraph struct {
+	fp uint64
+	g  *Graph
+}
+
+var graphCache = map[bool]cachedGraph{} // by symbols
+
+// fingerprint hashes root and every path below it with its size and
+// modification time.
+func fingerprint(root string, n *Node) uint64 {
+	h := fnv.New64a()
+	fmt.Fprintln(h, root)
+	var walk func(*Node)
+	walk = func(n *Node) {
+		fmt.Fprintln(h, n.Rel, n.Size, n.ModTime.UnixNano())
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(n)
+	return h.Sum64()
 }
 
 func goTestPackages(tests []string) []string {
