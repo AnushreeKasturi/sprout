@@ -45,3 +45,21 @@ from types import SimpleNamespace
 	wantDeps(t, g, "scripts/run.py", "scripts/helpers.py")
 	wantDeps(t, g, "backend/app/uses_shared.py", "libs/shared/src/shared/__init__.py")
 }
+
+// TestPythonReexports: from pkg import Name links the module that defines
+// Name when pkg/__init__.py re-exports it from its own modules, through a
+// subpackage too, and keeps the link to __init__.py.
+func TestPythonReexports(t *testing.T) {
+	g := graphFor(t, map[string]string{
+		"pyproject.toml":         "[project]\nname = \"app\"\n",
+		"app/__init__.py":        "from .models import Item as Thing\n",
+		"app/models/__init__.py": "from .user import User\nfrom app.models.item import Item\nfrom os import path\nfrom .misc import *\n",
+		"app/models/user.py":     "class User: pass\n",
+		"app/models/item.py":     "class Item: pass\n",
+		"app/models/misc.py":     "X = 1\n",
+		"app/api/users.py":       "from app.models import User, path, X\n",
+		"app/api/items.py":       "from app import Thing\n",
+	})
+	wantDeps(t, g, "app/api/users.py", "app/models/__init__.py", "app/models/user.py")
+	wantDeps(t, g, "app/api/items.py", "app/__init__.py", "app/models/item.py")
+}

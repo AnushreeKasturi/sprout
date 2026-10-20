@@ -12,11 +12,14 @@ instead of a compiler:
   submodule, and a itself otherwise.
 - Importing a module also runs its parent packages' __init__.py, so an edge
   to one of those is accepted as correct but not required.
+- When a is a package whose __init__.py re-exports b from one of its own
+  modules (from .core import b), "from a import b" also means that module.
 
     python3 py.py <repo> <graph.json>   (prints {rel: {specs, altSpecs, localSpecs, targets, altTargets}})
 """
 
 import ast
+import functools
 import json
 import os
 import sys
@@ -63,13 +66,61 @@ def absolute(dotted):
     return None, None
 
 
+@functools.lru_cache(maxsize=None)
+def parse(rel):
+    """The syntax tree of a file in the repository, or None for Python 2,
+    broken source or a file that can't be read."""
+    try:
+        # Paths come from the checkout being measured, not from a user.
+        with open(os.path.join(repo, rel), "rb") as source:  # skipcq: PTC-W6004
+            return ast.parse(source.read())
+    except (OSError, SyntaxError, ValueError):
+        return None
+
+
+def from_base(pkg_dir, level):
+    """The folder a relative import with `level` dots starts from."""
+    start = pkg_dir
+    for _ in range(level - 1):
+        start = os.path.dirname(start)
+    return start
+
+
+def import_target(init_file, stmt):
+    """The file a from-import in `init_file` imports from, or None."""
+    if not stmt.level:
+        return absolute(stmt.module or "")[1]
+    if not stmt.module:
+        return None
+    return module_file(from_base(os.path.dirname(init_file), stmt.level), stmt.module)
+
+
+def reexported(init_file, name, hops=0):
+    """The module a package's __init__.py imports `name` from, if it's one of
+    the package's own, following re-exports through subpackages."""
+    parsed = parse(init_file)
+    pkg_dir = os.path.dirname(init_file)
+    for stmt in parsed.body if parsed else []:
+        if not isinstance(stmt, ast.ImportFrom):
+            continue
+        for alias in stmt.names:
+            if (alias.asname or alias.name) != name or alias.name == "*":
+                continue
+            target = import_target(init_file, stmt)
+            if not target or not target.startswith(pkg_dir + "/") or target == init_file:
+                return None
+            if target.endswith("/__init__.py") and hops < 4:
+                return reexported(target, alias.name, hops + 1) or target
+            return target
+    return None
+
+
 out = {}
 for f in graph:
     if f["lang"] != "py":
         continue
-    try:
-        tree = ast.parse(open(os.path.join(repo, f["rel"]), "rb").read())
-    except (SyntaxError, ValueError):
+    tree = parse(f["rel"])
+    if tree is None:
         continue  # Python 2 or broken source: no truth to compare against
     specs, alt_specs, local, targets, alt_targets = [], [], [], set(), set()
     pkg = os.path.dirname(f["rel"])
@@ -91,9 +142,7 @@ for f in graph:
             names = [a.name for a in n.names if a.name != "*"]
             full = lambda name: (mod + "." if mod else "") + name
             if n.level:
-                base = pkg
-                for _ in range(n.level - 1):
-                    base = os.path.dirname(base)
+                base = from_base(pkg, n.level)
                 if base:
                     alt_targets.add(base + "/__init__.py")  # the importing package runs first
             else:
@@ -108,6 +157,12 @@ for f in graph:
             if subs or mod_file:
                 local.append(prefix + mod)
             targets.update(subs)
+            if mod_file and mod_file.endswith("__init__.py"):
+                for x in names:
+                    if not module_file(base, full(x)):
+                        t = reexported(mod_file, x)
+                        if t:
+                            targets.add(t)
             if mod_file:
                 if len(subs) < len(names) or n.names[0].name == "*":
                     targets.add(mod_file)  # some names are attributes of the module itself

@@ -151,6 +151,7 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 		exists[n.Rel] = true
 	}
 	r := resolver{exists: exists, goModules: goModules(t, goMods), javaIndex: javaIndex(nodes), pyRoots: pyRoots}
+	r.pyExports = pyReexports(nodes, t, r)
 	r.rs = loadRSProject(cargos, func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) }, exists)
 	if len(jsConfigs)+len(jsManifests) > 0 {
 		r.js = loadJSProject(jsConfigs, jsManifests, jsConfigPath(root))
@@ -304,11 +305,8 @@ func someOf(names []string) string {
 // resolver is read-only, so this is safe to run concurrently.
 func parseSource(n *Node, fsPath string, wantSymbols bool, r resolver) fileFacts {
 	var f fileFacts
-	if n.Size > maxSourceSize {
-		return f
-	}
-	src, err := os.ReadFile(fsPath)
-	if err != nil || bytes.IndexByte(src, 0) >= 0 {
+	src, ok := readSource(n, fsPath)
+	if !ok {
 		return f
 	}
 	lang := langOf(n.Name)
@@ -326,6 +324,15 @@ func parseSource(n *Node, fsPath string, wantSymbols bool, r resolver) fileFacts
 		}
 	}
 	return f
+}
+
+// readSource reads a file to parse, unless it's too large or binary.
+func readSource(n *Node, fsPath string) ([]byte, bool) {
+	if n.Size > maxSourceSize {
+		return nil, false
+	}
+	src, err := os.ReadFile(fsPath)
+	return src, err == nil && bytes.IndexByte(src, 0) < 0
 }
 
 func langOf(name string) string {
@@ -776,7 +783,8 @@ type resolver struct {
 	goModules []goModule
 	javaIndex map[string]string // "com/acme/Foo" -> rel path
 	js        *jsProject
-	pyRoots   []string // folders with a pyproject.toml, setup.py or setup.cfg, and their src/
+	pyRoots   []string                        // folders with a pyproject.toml, setup.py or setup.cfg, and their src/
+	pyExports map[string]map[string][2]string // __init__.py -> name it re-exports -> {module, name there}
 	rs        *rsProject
 }
 
