@@ -126,8 +126,8 @@ func pyReexports(nodes []*Node, t *Tree, r resolver) map[string]map[string][2]st
 		if n.Name != "__init__.py" {
 			continue
 		}
-		src, err := os.ReadFile(t.FSPath(n))
-		if err != nil {
+		src, ok := readSource(n, t.FSPath(n))
+		if !ok {
 			continue
 		}
 		pkgDir := path.Dir(n.Rel)
