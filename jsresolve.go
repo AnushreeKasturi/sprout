@@ -66,6 +66,7 @@ type jsProject struct {
 	configs  map[string]*jsConfig  // directory -> the tsconfig or jsconfig there, extends applied
 	packages map[string]*jsPackage // package name -> package
 	pkgNames []string              // longest first, so @acme/ui-kit isn't matched as @acme/ui
+	imports  map[string]any        // directory of every package.json -> its "imports" (nil if none)
 }
 
 type jsConfig struct {
@@ -110,17 +111,22 @@ func readJSONC(file string, v any) bool {
 // loadJSProject reads every tsconfig.json, jsconfig.json and package.json
 // in the tree. fsPath maps a relative path to its filesystem path.
 func loadJSProject(configs, manifests []string, fsPath func(rel string) string) *jsProject {
-	p := &jsProject{configs: map[string]*jsConfig{}, packages: map[string]*jsPackage{}}
+	p := &jsProject{configs: map[string]*jsConfig{}, packages: map[string]*jsPackage{}, imports: map[string]any{}}
 	for _, rel := range manifests {
 		var m struct {
 			Name    string `json:"name"`
+			Imports any    `json:"imports"`
 			Exports any    `json:"exports"`
 			Main    string `json:"main"`
 			Module  string `json:"module"`
 			Source  string `json:"source"`
 			Types   string `json:"types"`
 		}
-		if !readJSONC(fsPath(rel), &m) || m.Name == "" {
+		if !readJSONC(fsPath(rel), &m) {
+			continue
+		}
+		p.imports[path.Dir(rel)] = m.Imports
+		if m.Name == "" {
 			continue
 		}
 		pkg := &jsPackage{dir: path.Dir(rel), exports: m.Exports}
@@ -288,6 +294,55 @@ func (r resolver) resolveBare(from, spec string) []string {
 	return nil
 }
 
+// subpathImport resolves "#name" through the "imports" of the nearest
+// package.json above from, as Node does: a "./" target is a file of that
+// package, anything else a package, which may be one of this repository.
+func (r resolver) subpathImport(from, spec string) []string {
+	if r.js == nil {
+		return nil
+	}
+	dir := path.Dir(from)
+	for {
+		if imports, ok := r.js.imports[dir]; ok {
+			m, _ := imports.(map[string]any)
+			for _, t := range subpathTargets(m, spec) {
+				if strings.HasPrefix(t, "./") {
+					if f, ok := r.probeJS(path.Join(dir, t)); ok {
+						return []string{f}
+					}
+				} else if !strings.HasPrefix(t, "#") && !strings.HasPrefix(t, "/") && !strings.HasPrefix(t, "../") {
+					if f := r.resolveBare(from, t); f != nil {
+						return f
+					}
+				}
+			}
+			return nil
+		}
+		if dir == "." || dir == "/" || dir == "" {
+			return nil
+		}
+		dir = path.Dir(dir)
+	}
+}
+
+// subpathTargets are the paths m maps sub to, in order: its own key, else
+// the matching pattern with the longest prefix, as Node picks.
+func subpathTargets(m map[string]any, sub string) []string {
+	if v, ok := m[sub]; ok {
+		return leaves(v, "")
+	}
+	best, star := "", ""
+	for k := range m {
+		if s, ok := matchPattern(k, sub); ok && strings.Contains(k, "*") && strings.Index(k, "*") > strings.Index(best, "*") {
+			best, star = k, s
+		}
+	}
+	if best == "" {
+		return nil
+	}
+	return leaves(m[best], star)
+}
+
 // matchPattern matches spec against a paths pattern with at most one *,
 // returning what the * stood for.
 func matchPattern(pattern, spec string) (string, bool) {
@@ -320,15 +375,7 @@ func (r resolver) packageFile(pkg *jsPackage, sub string) (string, bool) {
 			exp = map[string]any{".": exp} // a string, an array, or conditions for "."
 			m = exp.(map[string]any)
 		}
-		if v, ok := m[sub]; ok {
-			return try(leaves(v, ""))
-		}
-		for k, v := range m {
-			if star, ok := matchPattern(k, sub); ok && strings.Contains(k, "*") {
-				return try(leaves(v, star))
-			}
-		}
-		return "", false
+		return try(subpathTargets(m, sub))
 	}
 	if sub == "." {
 		return try(append(append([]string{}, pkg.entry...), "index", "src/index"))

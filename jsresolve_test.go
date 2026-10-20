@@ -86,3 +86,27 @@ import {kit} from '@acme/ui-kit';
 		"packages/ui/src/button.tsx", "packages/ui/src/index.ts", "packages/ui/src/icons/x.tsx",
 		"packages/api/src/index.ts", "packages/util/lib/main.js", "packages/ui-kit/index.ts")
 }
+
+// TestJSSubpathImports: #specifiers resolve through the "imports" of the
+// nearest package.json, named or not: exact keys, the longest pattern, and
+// targets that are packages of the repository.
+func TestJSSubpathImports(t *testing.T) {
+	g := graphFor(t, map[string]string{
+		"package.json": `{"imports": {"#db": "./src/db/index.ts", "#utils/*": "./src/utils/*.ts",
+			"#utils/special/*": {"types": "./types/*.d.ts", "default": "./src/special/*.ts"}, "#ui": "@acme/ui"}}`,
+		"src/db/index.ts":          "export const db = 1;\n",
+		"src/utils/fmt.ts":         "export const fmt = 1;\n",
+		"src/special/x.ts":         "export const x = 1;\n",
+		"packages/ui/package.json": `{"name": "@acme/ui", "exports": "./index.ts"}`,
+		"packages/ui/index.ts":     "export const ui = 1;\n",
+		"packages/ui/lib/inner.ts": "import {db} from '#db';\n", // @acme/ui has no #db: not the root's
+		"src/app.ts": `import {db} from '#db';
+import {fmt} from '#utils/fmt';
+import {x} from '#utils/special/x';
+import {ui} from '#ui';
+import {gone} from '#missing';
+`,
+	})
+	wantDeps(t, g, "src/app.ts", "src/db/index.ts", "src/utils/fmt.ts", "src/special/x.ts", "packages/ui/index.ts")
+	wantDeps(t, g, "packages/ui/lib/inner.ts")
+}

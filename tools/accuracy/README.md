@@ -49,6 +49,7 @@ After #34–#37 (TS/JS, Python, Rust and Go resolution):
 |---|---|---:|---:|---:|---:|---:|
 | taxonomy | TS/JS | 131 | 100% (270/270) | 0 | 100% (270/270) | 100% (270/270) |
 | ky | TS/JS | 87 | 100% (164/164) | 1 | 100% (157/157) | 100% (157/157) |
+| release-drafter | TS/JS | 225 | 100% (486/486) | 14 | 100% (465/465) | 99% (465/471) |
 | create-t3-turbo | TS/JS | 77 | 100% (117/117) | 4 | 100% (113/113) | 99% (113/114) |
 | click | Python | 77 | 100% (319/319) | 3 | 100% (151/151) | 99% (155/156) |
 | fastapi-template | TS/JS | 109 | 100% (293/293) | 0 | 100% (292/292) | 100% (292/292) |
@@ -66,6 +67,10 @@ right and the ground truth is too narrow:
   puts the tests folder on the path. The Python rule only uses manifest roots.
 - ripgrep: `crates/core/main.rs` calls `flags::parse()`, a function defined in
   `flags/parse.rs` and re-exported by `flags`; the module rules stop at `flags`.
+
+One case is Sprout's mistake: release-drafter's consumer tests write code to
+disk from template strings, and the scanner reads the `import`s inside them
+as the test's own (its 6 wrong links).
 
 Kubernetes' few Python scripts aren't shown: they have one link
 (`hack/boilerplate/boilerplate_test.py` imports its neighbour, which is right).
