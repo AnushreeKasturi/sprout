@@ -175,6 +175,7 @@ func TestMCPErrorsForAgents(t *testing.T) {
 	resolved, _ := filepath.EvalSymlinks(dir)
 	for _, c := range []struct{ args, want string }{
 		{`{"name":"deps","arguments":{"file":"a"}}`, "a is a folder; deps needs a file (for where to start in a folder, call reading_order)"},
+		{`{"name":"impact","arguments":{"symbol":"Hello"}}`, `symbol needs files with exactly one source file`},
 		{`{"name":"context","arguments":{"file":"."}}`, "reading_order"},
 		{`{"name":"project_map","arguments":{"budget":0}}`, "budget must be at least 1"},
 		{`{"name":"context","arguments":{"file":"a/a.go","budget":-5}}`, "budget must be at least 1"},
