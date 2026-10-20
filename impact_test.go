@@ -282,3 +282,25 @@ func TestImpactNarrowsGoTests(t *testing.T) {
 		t.Errorf("unknown symbol: exit %d, %s", code, errOut)
 	}
 }
+
+// TestImpactSymbolAcrossPackages: --symbol reaches other packages through
+// method calls too, which name no package, and narrows their tests.
+func TestImpactSymbolAcrossPackages(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module ex\n\ngo 1.22\n")
+	write(t, dir, "a/a.go", "package a\n\ntype T struct{}\n\nfunc (T) Name() string { return \"t\" }\n\nfunc (T) Other() int { return 1 }\n")
+	write(t, dir, "b/b.go", "package b\n\nimport \"ex/a\"\n\nfunc Use(t a.T) string { return t.Name() }\n\nfunc Count(t a.T) int { return t.Other() }\n")
+	write(t, dir, "b/b_test.go", "package b\n\nimport (\n\t\"testing\"\n\n\t\"ex/a\"\n)\n\n"+
+		"func TestUse(t *testing.T) { Use(a.T{}) }\n\nfunc TestCount(t *testing.T) { Count(a.T{}) }\n\nfunc TestNone(t *testing.T) {}\n")
+	chdir(t, dir)
+
+	out, errOut, code := runCLI(t, "impact", "a/a.go", "--symbol", "Name")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	for _, want := range []string{"b/b.go  uses Name", "go test ./b -run ", "^(TestUse)$"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in:\n%s", want, out)
+		}
+	}
+}

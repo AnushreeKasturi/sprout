@@ -122,7 +122,7 @@ func TestMCPGraphTools(t *testing.T) {
 		2: {"web/y.ts depends on 1 file", "web/x.ts  imports ./x.js"},
 		3: {"(uncommitted changes)", "web/x.ts", "web/y.ts  imports ./x.js"},
 		4: {"Affected: 2 files, 1 directly", "go test ./b"},
-		5: {"Affected: 2 files, 1 directly", "b/b.go  uses a.Hello"},
+		5: {"Affected: 2 files, 1 directly", "b/b.go  uses Hello"},
 	} {
 		text, isErr := toolText(t, resps[id])
 		if isErr {

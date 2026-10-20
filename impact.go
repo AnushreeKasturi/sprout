@@ -263,7 +263,11 @@ func traceImpact(g *Graph, res *impactResult, root string, changed, deleted []st
 	}
 	res.Tests = sortedKeys(tests)
 	res.GoPackages = goTestPackages(res.Tests)
-	res.GoRun = goTestRun(root, g, res.Changed, res.Symbol)
+	full := res.Affected
+	if depth >= 0 {
+		full = nil // cut short: importers can't be told safe to narrow
+	}
+	res.GoRun = goTestRun(root, g, res.Changed, res.Symbol, full)
 	res.TestCommands = testCommands(root, res.Tests)
 }
 
