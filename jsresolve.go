@@ -38,25 +38,11 @@ func stripJSComments(src []byte) []byte {
 	for i := 0; i < len(out); i++ {
 		switch c := out[i]; {
 		case c == '"' || c == '\'' || c == '`':
-			for i++; i < len(out) && out[i] != c; i++ {
-				if out[i] == '\\' {
-					i++
-				} else if out[i] == '\n' && c != '`' {
-					break // an unterminated string ends at the line
-				} else if c == '`' && out[i] != '\n' {
-					out[i] = ' '
-				}
-			}
+			i = skipLiteral(out, i)
 		case c == '/' && i+1 < len(out) && out[i+1] == '/':
-			for ; i < len(out) && out[i] != '\n'; i++ {
-				out[i] = ' '
-			}
+			i = blankUntil(out, i, func(j int) bool { return out[j] == '\n' })
 		case c == '/' && i+1 < len(out) && out[i+1] == '*':
-			for ; i < len(out) && !(out[i] == '*' && i+1 < len(out) && out[i+1] == '/'); i++ {
-				if out[i] != '\n' {
-					out[i] = ' '
-				}
-			}
+			i = blankUntil(out, i, func(j int) bool { return out[j] == '*' && j+1 < len(out) && out[j+1] == '/' })
 			if i+1 < len(out) {
 				out[i], out[i+1] = ' ', ' '
 				i++
@@ -64,6 +50,34 @@ func stripJSComments(src []byte) []byte {
 		}
 	}
 	return out
+}
+
+// skipLiteral moves past the string or template literal opening at i, and
+// returns where it closes. A template's text is blanked.
+func skipLiteral(out []byte, i int) int {
+	c := out[i]
+	for i++; i < len(out) && out[i] != c; i++ {
+		switch {
+		case out[i] == '\\':
+			i++
+		case out[i] == '\n' && c != '`':
+			return i // an unterminated string ends at the line
+		case c == '`' && out[i] != '\n':
+			out[i] = ' '
+		}
+	}
+	return i
+}
+
+// blankUntil blanks from i up to where end holds, newlines kept, and
+// returns that index.
+func blankUntil(out []byte, i int, end func(int) bool) int {
+	for ; i < len(out) && !end(i); i++ {
+		if out[i] != '\n' {
+			out[i] = ' '
+		}
+	}
+	return i
 }
 
 type jsProject struct {
