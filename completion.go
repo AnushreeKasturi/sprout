@@ -59,7 +59,7 @@ var subcommands = []subcommand{
 		{"commit", "the changes in one commit", true},
 		{"depth", "how many hops of dependents to follow", true},
 		{"all", "list every affected file", false},
-		{"symbol", "only what uses this Go function, type or variable", true},
+		{"symbol", "only what uses this function, type or variable", true},
 		{"json", "print JSON", false},
 	}, true},
 	{"context", "what to know before editing a file", []flagInfo{

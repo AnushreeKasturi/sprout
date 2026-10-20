@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -141,7 +142,11 @@ func follow(g *Graph, start []FileID, reverse bool, depth int, noTests bool) []q
 	for d := 1; len(frontier) > 0 && (depth < 0 || d <= depth); d++ {
 		var reached []FileID
 		for _, p := range frontier {
-			for _, c := range next(p) {
+			children := next(p)
+			if reverse {
+				children = append(children[:len(children):len(children)], g.fixtureUsers(p)...)
+			}
+			for _, c := range children {
 				if seen[c] || noTests && g.Files[c].Test {
 					continue
 				}
@@ -183,6 +188,9 @@ func explain(g *Graph, hits []queryHit, reverse bool) {
 		}
 		if reverse {
 			h.Reason = g.Why(h.id, h.from)
+			if h.Reason == "" && path.Base(g.Files[h.from].Rel) == "conftest.py" {
+				h.Reason = "pytest fixtures"
+			}
 		} else {
 			h.Reason = g.Why(h.from, h.id)
 		}

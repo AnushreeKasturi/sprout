@@ -283,6 +283,36 @@ func TestImpactNarrowsGoTests(t *testing.T) {
 	}
 }
 
+// TestImpactPytestFixturesAndSymbol: tests reach code through conftest.py's
+// fixtures without importing it, and --symbol works outside Go by mention.
+func TestImpactPytestFixturesAndSymbol(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "pyproject.toml", "[tool.pytest.ini_options]\n")
+	write(t, dir, "app/__init__.py", "")
+	write(t, dir, "app/crud.py", "def authenticate():\n    return 1\n\ndef create_user():\n    return 2\n")
+	write(t, dir, "app/routes.py", "from app import crud\n\ndef login():\n    return crud.authenticate()\n")
+	write(t, dir, "app/main.py", "from app import routes\n")
+	write(t, dir, "tests/conftest.py", "from app.main import routes\n")
+	write(t, dir, "tests/test_login.py", "def test_login(client):\n    pass\n")
+	write(t, dir, "tests/test_crud.py", "from app.crud import create_user\n\ndef test_create():\n    create_user()\n")
+	chdir(t, dir)
+
+	out, _, _ := runCLI(t, "impact", "app/routes.py")
+	if !strings.Contains(out, "tests/test_login.py") {
+		t.Errorf("a test using conftest.py's fixtures should reach the route:\n%s", out)
+	}
+	out, errOut, code := runCLI(t, "impact", "app/crud.py", "--symbol", "create_user")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, "python -m pytest tests/test_crud.py\n") || strings.Contains(out, "routes.py") {
+		t.Errorf("--symbol create_user should reach test_crud.py alone:\n%s", out)
+	}
+	if _, errOut, code := runCLI(t, "impact", "app/crud.py", "--symbol", "nope"); code != 2 || !strings.Contains(errOut, "doesn't declare nope") {
+		t.Errorf("unknown symbol: exit %d, %s", code, errOut)
+	}
+}
+
 // TestImpactSymbolAcrossPackages: --symbol reaches other packages through
 // method calls too, which name no package, and narrows their tests.
 func TestImpactSymbolAcrossPackages(t *testing.T) {

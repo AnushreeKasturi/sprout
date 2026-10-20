@@ -1,6 +1,10 @@
 package main
 
-import "sort"
+import (
+	"path"
+	"sort"
+	"strings"
+)
 
 // The dependency graph is the shared, language-agnostic model that --entry
 // and --ai rank from, and that dependency, impact and context queries will
@@ -55,6 +59,24 @@ func (g *Graph) UsedNames(from, to FileID) []string {
 	}
 	_, names := g.why(from, to)
 	return names
+}
+
+// fixtureUsers are the tests a conftest.py serves: pytest gives its
+// fixtures to every test in its folder and below, which use them without
+// importing it, so the graph has no edge for them. nil for other files.
+func (g *Graph) fixtureUsers(id FileID) []FileID {
+	rel := g.Files[id].Rel
+	if path.Base(rel) != "conftest.py" {
+		return nil
+	}
+	dir := path.Dir(rel) + "/"
+	var users []FileID
+	for i, f := range g.Files {
+		if FileID(i) != id && strings.HasSuffix(f.Rel, ".py") && runnableTest(f) && (dir == "./" || strings.HasPrefix(f.Rel, dir)) {
+			users = append(users, FileID(i))
+		}
+	}
+	return users
 }
 
 // ID looks a file up by its relative path.
