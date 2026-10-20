@@ -807,6 +807,9 @@ func (r resolver) resolve(lang, from, spec string) []string {
 	dir := path.Dir(from)
 	switch lang {
 	case "js":
+		if strings.HasPrefix(spec, "#") {
+			return r.subpathImport(from, spec)
+		}
 		if !strings.HasPrefix(spec, ".") {
 			return r.resolveBare(from, spec)
 		}
