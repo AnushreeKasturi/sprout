@@ -536,109 +536,124 @@ func recvType(recv *ast.FieldList) string {
 //     imports whose selectors match nothing we parsed, depend on the whole
 //     package, so no dependency is lost.
 func linkGo(b *graphBuilder, facts []fileFacts, r resolver) {
-	// Declarations per package, keyed by directory and package name, so
-	// each identifier costs one short-string lookup: this loop visits every
-	// identifier in every file.
-	owner := map[string]goOwners{}     // declared in non-test files
-	testOwner := map[string]goOwners{} // declared in test files
-	pkgOf := map[string]string{}       // dir -> package name of its non-test files
-	pkgFiles := map[string][]FileID{}
-	pkgKey := func(dir, pkg string) string { return dir + "\x00" + pkg }
+	x := indexGo(b, facts, r)
+	methods := goMethodsElsewhere(b, facts, x.owner)
+	for i, f := range facts {
+		if gf := f.goFacts; gf != nil {
+			id, k := FileID(i), goPkgKey(path.Dir(b.files[i].Rel), gf.pkg)
+			x.linkSamePackage(b, id, gf, k)
+			linkMethodCalls(b, id, gf.called, methods[k])
+			x.linkImports(b, id, gf)
+		}
+	}
+}
+
+// goIndex is what linkGo looks names up in, built once. Declarations are
+// kept per package, keyed by directory and package name, so each
+// identifier costs one short-string lookup: linking visits every
+// identifier in every file.
+type goIndex struct {
+	owner     map[string]goOwners // declared in non-test files
+	testOwner map[string]goOwners // declared in test files
+	pkgOf     map[string]string   // dir -> package name of its non-test files
+	pkgFiles  map[string][]FileID
+	dirOf     map[string]string // import path -> package dir ("" if not in the tree)
+	r         resolver
+}
+
+func goPkgKey(dir, pkg string) string { return dir + "\x00" + pkg }
+
+func indexGo(b *graphBuilder, facts []fileFacts, r resolver) *goIndex {
+	x := &goIndex{owner: map[string]goOwners{}, testOwner: map[string]goOwners{}, pkgOf: map[string]string{},
+		pkgFiles: map[string][]FileID{}, dirOf: map[string]string{}, r: r}
 	for i, f := range facts {
 		gf := f.goFacts
 		if gf == nil {
 			continue
 		}
 		id, dir := FileID(i), path.Dir(b.files[i].Rel)
-		table := owner
+		table := x.owner
 		if b.files[i].Test {
-			table = testOwner
+			table = x.testOwner
 		} else {
-			if _, ok := pkgOf[dir]; !ok {
-				pkgOf[dir] = gf.pkg
+			if _, ok := x.pkgOf[dir]; !ok {
+				x.pkgOf[dir] = gf.pkg
 			}
-			if pkgOf[dir] == gf.pkg {
-				pkgFiles[dir] = append(pkgFiles[dir], id)
+			if x.pkgOf[dir] == gf.pkg {
+				x.pkgFiles[dir] = append(x.pkgFiles[dir], id)
 			}
 		}
-		k := pkgKey(dir, gf.pkg)
-		d := table[k]
-		if d == nil {
-			d = goOwners{}
-			table[k] = d
+		k := goPkgKey(dir, gf.pkg)
+		if table[k] == nil {
+			table[k] = goOwners{}
 		}
 		for _, name := range gf.declares {
-			if _, taken := d[name]; !taken {
-				d[name] = id
+			if _, taken := table[k][name]; !taken {
+				table[k][name] = id
 			}
 		}
 	}
-	methods := goMethodsElsewhere(b, facts, owner, pkgKey)
+	return x
+}
 
-	dirOf := map[string]string{} // import path -> package dir ("" if not in the tree)
-	for i, f := range facts {
-		gf := f.goFacts
-		if gf == nil {
-			continue
-		}
-		id, dir, test := FileID(i), path.Dir(b.files[i].Rel), b.files[i].Test
-
-		k := pkgKey(dir, gf.pkg)
-		same, sameTests := owner[k], testOwner[k]
-		for name := range gf.uses {
-			if t, ok := same[name]; ok {
+// linkSamePackage links id to the files of its own package declaring the
+// names it uses; a test may also use test files' names.
+func (x *goIndex) linkSamePackage(b *graphBuilder, id FileID, gf *goFacts, k string) {
+	same, sameTests := x.owner[k], x.testOwner[k]
+	for name := range gf.uses {
+		if t, ok := same[name]; ok {
+			b.link(id, t)
+		} else if b.files[id].Test {
+			if t, ok := sameTests[name]; ok {
 				b.link(id, t)
-			} else if test {
-				if t, ok := sameTests[name]; ok {
-					b.link(id, t)
-				}
 			}
 		}
-		linkMethodCalls(b, id, gf.called, methods[k])
+	}
+}
 
-		local := map[string]string{} // name the file refers to a package by -> its dir
-		for _, imp := range gf.imports {
-			dir, seen := dirOf[imp.path]
-			if !seen {
-				dir, _ = r.goPackageDir(imp.path)
-				dirOf[imp.path] = dir
-			}
-			if dir == "" || len(pkgFiles[dir]) == 0 {
-				continue
-			}
-			name := imp.name
-			if name == "" {
-				name = pkgOf[dir]
-			}
-			if name == "_" || name == "." {
-				for _, t := range pkgFiles[dir] {
-					b.link(id, t)
-				}
-				continue
-			}
-			local[name] = dir
+// linkImports links id to the files of the packages it imports that
+// declare the names it selects (pkg.Name); a blank or dot import, or one
+// whose selectors match nothing, links the whole package.
+func (x *goIndex) linkImports(b *graphBuilder, id FileID, gf *goFacts) {
+	local := map[string]string{} // name the file refers to a package by -> its dir
+	for _, imp := range gf.imports {
+		dir, seen := x.dirOf[imp.path]
+		if !seen {
+			dir, _ = x.r.goPackageDir(imp.path)
+			x.dirOf[imp.path] = dir
 		}
-		if len(local) == 0 {
+		if dir == "" || len(x.pkgFiles[dir]) == 0 {
 			continue
 		}
-		resolved := map[string]bool{}
-		for sel := range gf.selectors {
-			dir, ok := local[sel[0]]
-			if !ok {
-				continue
-			}
-			if t, ok := owner[pkgKey(dir, pkgOf[dir])][sel[1]]; ok {
+		name := imp.name
+		if name == "" {
+			name = x.pkgOf[dir]
+		}
+		if name == "_" || name == "." {
+			x.linkPackage(b, id, dir)
+			continue
+		}
+		local[name] = dir
+	}
+	resolved := map[string]bool{}
+	for sel := range gf.selectors {
+		if dir, ok := local[sel[0]]; ok {
+			if t, ok := x.owner[goPkgKey(dir, x.pkgOf[dir])][sel[1]]; ok {
 				b.link(id, t)
 				resolved[dir] = true
 			}
 		}
-		for _, dir := range local {
-			if !resolved[dir] {
-				for _, t := range pkgFiles[dir] {
-					b.link(id, t)
-				}
-			}
+	}
+	for _, dir := range local {
+		if !resolved[dir] {
+			x.linkPackage(b, id, dir)
 		}
+	}
+}
+
+func (x *goIndex) linkPackage(b *graphBuilder, id FileID, dir string) {
+	for _, t := range x.pkgFiles[dir] {
+		b.link(id, t)
 	}
 }
 
@@ -663,14 +678,14 @@ type goOwners map[string]FileID
 // are reached through the type.
 // ponytail: calls match by method name, so a common one (String, Equal)
 // can link a file that calls it on another type; type checking would fix it.
-func goMethodsElsewhere(b *graphBuilder, facts []fileFacts, owner map[string]goOwners, pkgKey func(dir, pkg string) string) map[string]map[string][]FileID {
+func goMethodsElsewhere(b *graphBuilder, facts []fileFacts, owner map[string]goOwners) map[string]map[string][]FileID {
 	methods := map[string]map[string][]FileID{}
 	for i, f := range facts {
 		gf := f.goFacts
 		if gf == nil || b.files[i].Test {
 			continue
 		}
-		k := pkgKey(path.Dir(b.files[i].Rel), gf.pkg)
+		k := goPkgKey(path.Dir(b.files[i].Rel), gf.pkg)
 		for _, m := range gf.methods {
 			if t, ok := owner[k][m[0]]; !ok || t == FileID(i) {
 				continue
