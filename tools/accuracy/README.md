@@ -43,14 +43,16 @@ and a wrong one adds noise.
 
 ## Current
 
-After #34–#37 (TS/JS, Python, Rust and Go resolution):
+After #34–#37 (TS/JS, Python, Rust and Go resolution), and Python re-exports
+through `__init__.py`, which the Python rule also follows since then (click
+was 97%, 151/155, before Sprout did):
 
 | Repository | Language | Files | In-repo imports found | False imports | Links found | Links correct |
 |---|---|---:|---:|---:|---:|---:|
 | taxonomy | TS/JS | 131 | 100% (270/270) | 0 | 100% (270/270) | 100% (270/270) |
 | ky | TS/JS | 87 | 100% (164/164) | 1 | 100% (157/157) | 100% (157/157) |
 | create-t3-turbo | TS/JS | 77 | 100% (117/117) | 4 | 100% (113/113) | 99% (113/114) |
-| click | Python | 77 | 100% (319/319) | 3 | 100% (151/151) | 99% (155/156) |
+| click | Python | 77 | 100% (319/319) | 3 | 100% (155/155) | 99% (159/160) |
 | fastapi-template | TS/JS | 109 | 100% (293/293) | 0 | 100% (292/292) | 100% (292/292) |
 | fastapi-template | Python | 43 | 100% (75/75) | 0 | 100% (79/79) | 100% (90/90) |
 | kubernetes | Go | 13,002 | n/a (go/parser) | – | 100% (56018/56137) | 100% (56018/56018) |

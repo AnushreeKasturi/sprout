@@ -151,6 +151,7 @@ func buildGraph(root string, t *Tree, tests, symbols bool) *Graph {
 		exists[n.Rel] = true
 	}
 	r := resolver{exists: exists, goModules: goModules(t, goMods), javaIndex: javaIndex(nodes), pyRoots: pyRoots}
+	r.pyExports = pyReexports(nodes, t, r)
 	r.rs = loadRSProject(cargos, func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) }, exists)
 	if len(jsConfigs)+len(jsManifests) > 0 {
 		r.js = loadJSProject(jsConfigs, jsManifests, jsConfigPath(root))
@@ -776,7 +777,8 @@ type resolver struct {
 	goModules []goModule
 	javaIndex map[string]string // "com/acme/Foo" -> rel path
 	js        *jsProject
-	pyRoots   []string // folders with a pyproject.toml, setup.py or setup.cfg, and their src/
+	pyRoots   []string                        // folders with a pyproject.toml, setup.py or setup.cfg, and their src/
+	pyExports map[string]map[string][2]string // __init__.py -> name it re-exports -> {module, name there}
 	rs        *rsProject
 }
 

@@ -12,6 +12,8 @@ instead of a compiler:
   submodule, and a itself otherwise.
 - Importing a module also runs its parent packages' __init__.py, so an edge
   to one of those is accepted as correct but not required.
+- When a is a package whose __init__.py re-exports b from one of its own
+  modules (from .core import b), "from a import b" also means that module.
 
     python3 py.py <repo> <graph.json>   (prints {rel: {specs, altSpecs, localSpecs, targets, altTargets}})
 """
@@ -63,6 +65,35 @@ def absolute(dotted):
     return None, None
 
 
+def reexported(init, name, hops=0):
+    """The module a package's __init__.py imports `name` from, if it's one of
+    the package's own, following re-exports through subpackages."""
+    try:
+        tree = ast.parse(open(os.path.join(repo, init), "rb").read())
+    except (OSError, SyntaxError, ValueError):
+        return None
+    pkg_dir = os.path.dirname(init)
+    for n in tree.body:
+        if not isinstance(n, ast.ImportFrom):
+            continue
+        for a in n.names:
+            if (a.asname or a.name) != name or a.name == "*":
+                continue
+            if n.level:
+                base = pkg_dir
+                for _ in range(n.level - 1):
+                    base = os.path.dirname(base)
+                target = module_file(base, n.module) if n.module else None
+            else:
+                target = absolute(n.module or "")[1]
+            if not target or not target.startswith(pkg_dir + "/") or target == init:
+                return None
+            if target.endswith("/__init__.py") and hops < 4:
+                return reexported(target, a.name, hops + 1) or target
+            return target
+    return None
+
+
 out = {}
 for f in graph:
     if f["lang"] != "py":
@@ -108,6 +139,12 @@ for f in graph:
             if subs or mod_file:
                 local.append(prefix + mod)
             targets.update(subs)
+            if mod_file and mod_file.endswith("__init__.py"):
+                for x in names:
+                    if not module_file(base, full(x)):
+                        t = reexported(mod_file, x)
+                        if t:
+                            targets.add(t)
             if mod_file:
                 if len(subs) < len(names) or n.names[0].name == "*":
                     targets.add(mod_file)  # some names are attributes of the module itself
