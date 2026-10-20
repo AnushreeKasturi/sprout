@@ -73,6 +73,7 @@ type toolArgs struct {
 	Staged  bool     `json:"staged"`
 	Commit  string   `json:"commit"`
 	NoTests bool     `json:"noTests"`
+	Symbol  string   `json:"symbol"`
 }
 
 func schema(props map[string]any, required ...string) map[string]any {
@@ -185,15 +186,17 @@ var graphTools = []mcpTool{
 	{
 		Name: "impact",
 		Description: "What a change could break: every file depending on the changed ones, directly or through " +
-			"others, and the tests to run (with a go test command for Go). The change is the given files, or " +
-			"from git: uncommitted changes (default), staged, a revision range, or one commit. " +
-			"Use after editing, before running tests or opening a pull request.",
+			"others, and the tests to run (with a go test command for Go, narrowed with -run to the tests that " +
+			"reach the change). The change is the given files, or from git: uncommitted changes (default), " +
+			"staged, a revision range, or one commit. For one Go function, type or variable, give one file and " +
+			"symbol. Use after editing, before running tests or opening a pull request.",
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{
 			"files":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Changed files, relative to the project root."},
 			"staged": map[string]any{"type": "boolean", "description": "Use the staged changes."},
 			"rev":    map[string]any{"type": "string", "description": "Use the changes in a revision range, e.g. 'main...HEAD'."},
 			"commit": map[string]any{"type": "string", "description": "Use the changes in one commit, e.g. 'HEAD'."},
 			"all":    map[string]any{"type": "boolean", "description": "List every affected file, not just direct dependents."},
+			"symbol": map[string]any{"type": "string", "description": "With one Go file: only what uses this function, method, type or variable."},
 		}},
 		args: func(a toolArgs) ([]string, error) {
 			args := append([]string{}, a.Files...)
@@ -207,6 +210,9 @@ var graphTools = []mcpTool{
 			}
 			if a.All {
 				args = append(args, "--all")
+			}
+			if a.Symbol != "" {
+				args = append(args, "--symbol", a.Symbol)
 			}
 			return args, nil
 		},

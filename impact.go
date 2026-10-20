@@ -17,16 +17,18 @@ import (
 // work (the default), the staged files, a revision range, or one commit.
 
 type impactResult struct {
-	SchemaVersion int        `json:"schemaVersion"`
-	Command       string     `json:"command"`
-	Source        string     `json:"source"`
-	Changed       []string   `json:"changed"`
-	Deleted       []string   `json:"deleted,omitempty"`
-	Untracked     []string   `json:"notInGraph,omitempty"` // changed files that aren't source code Sprout reads
-	Affected      []queryHit `json:"affected"`
-	Tests         []string   `json:"tests"`
-	GoPackages    []string   `json:"goTestPackages,omitempty"`
-	TestCommands  []testCmd  `json:"testCommands,omitempty"` // Python and JS/TS tests, by project
+	SchemaVersion int                 `json:"schemaVersion"`
+	Command       string              `json:"command"`
+	Source        string              `json:"source"`
+	Changed       []string            `json:"changed"`
+	Deleted       []string            `json:"deleted,omitempty"`
+	Untracked     []string            `json:"notInGraph,omitempty"` // changed files that aren't source code Sprout reads
+	Affected      []queryHit          `json:"affected"`
+	Tests         []string            `json:"tests"`
+	GoPackages    []string            `json:"goTestPackages,omitempty"`
+	GoRun         map[string][]string `json:"goTestRun,omitempty"` // package -> the only tests that reach the change
+	Symbol        string              `json:"symbol,omitempty"`
+	TestCommands  []testCmd           `json:"testCommands,omitempty"` // Python and JS/TS tests, by project
 
 	base string // with nothing uncommitted: the branch to suggest --diff against
 }
@@ -50,10 +52,11 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	commit := fs.String("commit", "", "the changes in one commit, e.g. HEAD")
 	depth := fs.Int("depth", -1, "how many hops of dependents to follow (-1 for all)")
 	all := fs.Bool("all", false, "list every affected file, not just direct dependents")
+	symbol := fs.String("symbol", "", "only what uses this function, type or variable of a Go file")
 	asJSON := fs.Bool("json", false, "print JSON")
 	files, err := parseFiles(fs, args)
 	if err == flag.ErrHelp {
-		fmt.Fprint(stdout, "Usage: sprout impact [FILE...] [--staged | --diff REV | --commit REV] [--depth N] [--all] [--json]\n\nWith no files, the uncommitted changes, untracked files included.\n")
+		fmt.Fprint(stdout, "Usage: sprout impact [FILE...] [--staged | --diff REV | --commit REV] [--symbol NAME] [--depth N] [--all] [--json]\n\nWith no files, the uncommitted changes, untracked files included.\n--symbol narrows one Go file's impact to what uses NAME.\n")
 		return 0
 	}
 	if err != nil {
@@ -94,6 +97,11 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 			res.base = repo.defaultBranch()
 		}
 	}
+	if err := checkSymbol(root, g, changed, *symbol); err != nil {
+		fmt.Fprintln(stderr, "sprout:", err)
+		return 2
+	}
+	res.Symbol = *symbol
 	traceImpact(g, &res, root, changed, deleted, *depth)
 
 	if *asJSON {
@@ -104,6 +112,19 @@ func runImpact(args []string, root string, stdout, stderr io.Writer) int {
 	}
 	printImpact(stdout, g, res, *all)
 	return 0
+}
+
+// checkSymbol checks that a --symbol is declared in the one Go file named.
+func checkSymbol(root string, g *Graph, changed []string, symbol string) error {
+	switch {
+	case symbol == "":
+		return nil
+	case len(changed) != 1 || !strings.HasSuffix(changed[0], ".go"):
+		return fmt.Errorf("--symbol needs one Go file, e.g. sprout impact store.go --symbol Save")
+	case symbolKeys(packageDecls(root, path.Dir(changed[0]), g), changed[0], symbol) == nil:
+		return fmt.Errorf("%s doesn't declare %s", changed[0], symbol)
+	}
+	return nil
 }
 
 // count is how many of on are true.
@@ -221,7 +242,11 @@ func traceImpact(g *Graph, res *impactResult, root string, changed, deleted []st
 			res.Untracked = append(res.Untracked, rel)
 		}
 	}
-	res.Affected = follow(g, ids, true, depth, false)
+	if res.Symbol != "" {
+		res.Affected = symbolImpact(root, g, ids[0], res.Symbol, depth)
+	} else {
+		res.Affected = follow(g, ids, true, depth, false)
+	}
 
 	// Tests: the changed tests themselves, and every test that reaches a change.
 	tests := map[string]bool{}
@@ -237,6 +262,7 @@ func traceImpact(g *Graph, res *impactResult, root string, changed, deleted []st
 	}
 	res.Tests = sortedKeys(tests)
 	res.GoPackages = goTestPackages(res.Tests)
+	res.GoRun = goTestRun(root, g, res.Changed, res.Symbol)
 	res.TestCommands = testCommands(root, res.Tests)
 }
 
@@ -364,11 +390,7 @@ func goTestPackages(tests []string) []string {
 	pkgs := map[string]bool{}
 	for _, t := range tests {
 		if strings.HasSuffix(t, "_test.go") {
-			if dir := path.Dir(t); dir == "." {
-				pkgs["."] = true
-			} else {
-				pkgs["./"+dir] = true
-			}
+			pkgs[goPkg(path.Dir(t))] = true
 		}
 	}
 	return sortedKeys(pkgs)
@@ -409,7 +431,9 @@ func printImpact(w io.Writer, g *Graph, res impactResult, all bool) {
 			direct++
 		}
 	}
-	if res.Source == "files" {
+	if res.Symbol != "" {
+		fmt.Fprintf(w, "Impact of %s\n\n", printable(res.Symbol))
+	} else if res.Source == "files" {
 		fmt.Fprintf(w, "Impact of %s\n\n", plural(len(res.Changed), "file"))
 	} else {
 		fmt.Fprintf(w, "Impact of %s (%s)\n\n", plural(len(res.Changed), "changed file"), res.Source)
@@ -492,6 +516,31 @@ func printCommand(w io.Writer, lines []string) {
 	}
 }
 
+// printGoTests writes the go test commands: one with -run for each package
+// narrowed to some of its tests, one for the packages to test whole. It
+// reports whether it wrote any; it doesn't when a path isn't shellSafe.
+func printGoTests(w io.Writer, res impactResult, all bool) bool {
+	lines, ok := commandLine(testCmd{".", append([]string{"go", "test"}, res.GoPackages...), 2}, all)
+	if !ok || len(res.GoPackages) == 0 {
+		return false
+	}
+	var whole []string
+	for _, p := range res.GoPackages {
+		if tests := res.GoRun[p]; tests != nil {
+			fmt.Fprintf(w, "  go test %s -run '^(%s)$'\n", p, strings.Join(tests, "|"))
+		} else {
+			whole = append(whole, p)
+		}
+	}
+	if len(whole) < len(res.GoPackages) {
+		lines, _ = commandLine(testCmd{".", append([]string{"go", "test"}, whole...), 2}, all)
+	}
+	if len(whole) > 0 {
+		printCommand(w, lines)
+	}
+	return true
+}
+
 // printImpactTests lists the tests that reach a change: a go test command
 // for Go packages, pytest, vitest or jest commands where the project uses
 // them, and the other test files by name.
@@ -502,8 +551,7 @@ func printImpactTests(w io.Writer, res impactResult, all bool) {
 	}
 	fmt.Fprintln(w)
 	covered := map[string]bool{}
-	if lines, ok := commandLine(testCmd{".", append([]string{"go", "test"}, res.GoPackages...), 2}, all); ok && len(res.GoPackages) > 0 {
-		printCommand(w, lines)
+	if printGoTests(w, res, all) {
 		for _, t := range res.Tests {
 			covered[t] = strings.HasSuffix(t, "_test.go")
 		}
