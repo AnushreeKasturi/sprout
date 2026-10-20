@@ -180,6 +180,26 @@ Tests: 88 files, 67 Go packages
   (runs 12 of 67; --all prints the full command)
 ```
 
+In Go, it also follows the change function by function within its package,
+so `go test` gets a `-run` with only the tests that reach it, when that's
+under half of them. For one function, method, type or variable, add
+`--symbol NAME`: only the code and tests that use it, directly or through
+other functions.
+
+```
+$ sprout impact command.go --symbol SetContext   # in cobra
+Impact of SetContext
+
+  command.go
+
+Affected: 0 files
+
+Tests: 1 file, 1 Go package
+  go test . -run '^(TestSetContext|TestSetContextPersistentPreRun|TestSetContextPreRun|TestSetContextPreRunOverwrite)$'
+```
+
+That's 4 of cobra's 260 tests.
+
 ## `context`: before you edit a file
 
 `sprout context FILE` is what to know before changing one file, fitted to a
@@ -363,7 +383,8 @@ Sprout's `deps`, `dependents`, `impact`, `context` and `tour` commands
 support `--json` for machine-readable output with a `schemaVersion`.
 The `impact` command reports affected files, tests and test commands for
 supported languages through `testCommands` (Python, TypeScript and
-JavaScript) and `goTestPackages` (Go). The `context FILE --json` command
+JavaScript), `goTestPackages` (Go) and `goTestRun` (the tests to pass to
+`go test -run`, by package, where it narrows them). The `context FILE --json` command
 provides file context, while `tour --json` returns a structured project
 tour. These outputs can be used in scripts, CI workflows and bots.
 
