@@ -198,3 +198,17 @@ func TestGoLinksMethodsOnOtherFilesTypes(t *testing.T) {
 	wantDeps(t, g, "run.go", "command.go", "groups.go")
 	wantDeps(t, g, "unrelated.go")
 }
+
+// TestGoLinksPackageNamesOnly: locals, parameters, fields and a method's
+// own name aren't uses of package-level declarations that share the name.
+func TestGoLinksPackageNamesOnly(t *testing.T) {
+	g := graphFor(t, map[string]string{
+		"go.mod":  "module ex\n\ngo 1.22\n",
+		"main.go": "package ex\n\nfunc run() {}\n\nfunc walk() {}\n\ntype cfg struct{}\n",
+		"other.go": "package ex\n\ntype repo struct{ cfg int }\n\nfunc (r *repo) run() {}\n\n" +
+			"func use(walk func()) { run := 1; _ = run; walk(); r := &repo{}; _ = r.cfg }\n",
+		"uses.go": "package ex\n\nfunc caller() { run() }\n",
+	})
+	wantDeps(t, g, "other.go")
+	wantDeps(t, g, "uses.go", "main.go")
+}

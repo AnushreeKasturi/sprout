@@ -373,7 +373,8 @@ type goImport struct{ path, name string } // name is "" unless the import is ren
 // wantSymbols) and its references.
 func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, filename, src, parser.SkipObjectResolution)
+	// Scopes are resolved so a local can be told from a package-level name.
+	file, err := parser.ParseFile(fset, filename, src, 0)
 	if err != nil {
 		return nil, nil
 	}
@@ -395,18 +396,7 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 		}
 		gf.imports = append(gf.imports, gi)
 	}
-	ast.Inspect(file, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.Ident:
-			gf.uses[x.Name] = true
-		case *ast.SelectorExpr:
-			gf.called[x.Sel.Name] = true
-			if id, ok := x.X.(*ast.Ident); ok && pkgNames[id.Name] {
-				gf.selectors[[2]string{id.Name, x.Sel.Name}] = true
-			}
-		}
-		return true
-	})
+	goRefs(file, gf, pkgNames)
 	for _, d := range file.Decls {
 		switch d := d.(type) {
 		case *ast.FuncDecl:
@@ -461,6 +451,44 @@ func goDecls(filename string, src []byte, wantSymbols bool) ([]string, *goFacts)
 		}
 	}
 	return append(symbols, private...), gf
+}
+
+// goRefs records what file refers to in gf: the package-level names it
+// uses, every x.Name selector's Name, and pkg.Name on imported packages.
+func goRefs(file *ast.File, gf *goFacts, pkgNames map[string]bool) {
+	var visit func(ast.Node) bool
+	visit = func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.Ident:
+			// A package-level name: another file's (unresolved here), or
+			// this file's. Anything else resolved is a local or parameter.
+			if x.Obj == nil || file.Scope.Objects[x.Name] == x.Obj {
+				gf.uses[x.Name] = true
+			}
+		case *ast.SelectorExpr: // x.Name: Name is a field, method or package member, not a use
+			gf.called[x.Sel.Name] = true
+			if id, ok := x.X.(*ast.Ident); ok && pkgNames[id.Name] {
+				gf.selectors[[2]string{id.Name, x.Sel.Name}] = true
+			}
+			ast.Inspect(x.X, visit)
+			return false
+		case *ast.FuncDecl: // its own name isn't a use
+			if x.Recv != nil {
+				ast.Inspect(x.Recv, visit)
+			}
+			ast.Inspect(x.Type, visit)
+			if x.Body != nil {
+				ast.Inspect(x.Body, visit)
+			}
+			return false
+		case *ast.GenDecl:
+			return x.Tok != token.IMPORT
+		}
+		return true
+	}
+	for _, d := range file.Decls {
+		ast.Inspect(d, visit)
+	}
 }
 
 // recvType is a method receiver's type name: T for (t T), (t *T) or (t T[K]).
