@@ -19,6 +19,7 @@ instead of a compiler:
 """
 
 import ast
+import functools
 import json
 import os
 import sys
@@ -65,31 +66,51 @@ def absolute(dotted):
     return None, None
 
 
-def reexported(init, name, hops=0):
-    """The module a package's __init__.py imports `name` from, if it's one of
-    the package's own, following re-exports through subpackages."""
+@functools.lru_cache(maxsize=None)
+def parse(rel):
+    """The syntax tree of a file in the repository, or None for Python 2,
+    broken source or a file that can't be read."""
     try:
-        tree = ast.parse(open(os.path.join(repo, init), "rb").read())
+        # Paths come from the checkout being measured, not from a user.
+        with open(os.path.join(repo, rel), "rb") as source:  # skipcq: PTC-W6004
+            return ast.parse(source.read())
     except (OSError, SyntaxError, ValueError):
         return None
-    pkg_dir = os.path.dirname(init)
-    for n in tree.body:
-        if not isinstance(n, ast.ImportFrom):
+
+
+def from_base(pkg_dir, level):
+    """The folder a relative import with `level` dots starts from."""
+    start = pkg_dir
+    for _ in range(level - 1):
+        start = os.path.dirname(start)
+    return start
+
+
+def import_target(init_file, stmt):
+    """The file a from-import in `init_file` imports from, or None."""
+    if not stmt.level:
+        return absolute(stmt.module or "")[1]
+    if not stmt.module:
+        return None
+    return module_file(from_base(os.path.dirname(init_file), stmt.level), stmt.module)
+
+
+def reexported(init_file, name, hops=0):
+    """The module a package's __init__.py imports `name` from, if it's one of
+    the package's own, following re-exports through subpackages."""
+    parsed = parse(init_file)
+    pkg_dir = os.path.dirname(init_file)
+    for stmt in parsed.body if parsed else []:
+        if not isinstance(stmt, ast.ImportFrom):
             continue
-        for a in n.names:
-            if (a.asname or a.name) != name or a.name == "*":
+        for alias in stmt.names:
+            if (alias.asname or alias.name) != name or alias.name == "*":
                 continue
-            if n.level:
-                base = pkg_dir
-                for _ in range(n.level - 1):
-                    base = os.path.dirname(base)
-                target = module_file(base, n.module) if n.module else None
-            else:
-                target = absolute(n.module or "")[1]
-            if not target or not target.startswith(pkg_dir + "/") or target == init:
+            target = import_target(init_file, stmt)
+            if not target or not target.startswith(pkg_dir + "/") or target == init_file:
                 return None
             if target.endswith("/__init__.py") and hops < 4:
-                return reexported(target, a.name, hops + 1) or target
+                return reexported(target, alias.name, hops + 1) or target
             return target
     return None
 
@@ -98,9 +119,8 @@ out = {}
 for f in graph:
     if f["lang"] != "py":
         continue
-    try:
-        tree = ast.parse(open(os.path.join(repo, f["rel"]), "rb").read())
-    except (SyntaxError, ValueError):
+    tree = parse(f["rel"])
+    if tree is None:
         continue  # Python 2 or broken source: no truth to compare against
     specs, alt_specs, local, targets, alt_targets = [], [], [], set(), set()
     pkg = os.path.dirname(f["rel"])
@@ -122,9 +142,7 @@ for f in graph:
             names = [a.name for a in n.names if a.name != "*"]
             full = lambda name: (mod + "." if mod else "") + name
             if n.level:
-                base = pkg
-                for _ in range(n.level - 1):
-                    base = os.path.dirname(base)
+                base = from_base(pkg, n.level)
                 if base:
                     alt_targets.add(base + "/__init__.py")  # the importing package runs first
             else:
