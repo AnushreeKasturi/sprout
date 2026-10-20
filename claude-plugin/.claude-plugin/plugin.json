@@ -1,0 +1,10 @@
+{
+  "name": "sprout",
+  "description": "Dependency graph, change impact and the tests to run, as MCP tools, with a skill that tells Claude when to use them instead of grep. Needs the sprout binary on PATH.",
+  "author": {
+    "name": "Sprout-DevLabs",
+    "url": "https://github.com/Sprout-DevLabs/sprout"
+  },
+  "homepage": "https://sprout-devlabs.github.io/sprout-web/",
+  "license": "MIT"
+}
