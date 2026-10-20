@@ -204,6 +204,9 @@ var graphTools = []mcpTool{
 			"symbol": map[string]any{"type": "string", "description": "With one file: only what uses this function, method, class, type or variable."},
 		}},
 		args: func(a toolArgs) ([]string, error) {
+			if a.Symbol != "" && len(a.Files) != 1 {
+				return nil, fmt.Errorf(`symbol needs files with exactly one source file, e.g. {"files": ["store.go"], "symbol": "Save"}`)
+			}
 			args := append([]string{}, a.Files...)
 			switch {
 			case a.Staged:
@@ -774,9 +777,6 @@ func budgetArgs(args []string, budget *int) ([]string, error) {
 func callGraphTool(root string, tool mcpTool, a toolArgs) (string, error) {
 	if tool.Name != "impact" && a.File == "" {
 		return "", fmt.Errorf("file is required")
-	}
-	if tool.Name == "impact" && a.Symbol != "" && len(a.Files) != 1 {
-		return "", fmt.Errorf(`symbol needs files with exactly one source file, e.g. {"files": ["store.go"], "symbol": "Save"}`)
 	}
 	confineFile := func(p string) (string, error) {
 		if strings.HasPrefix(p, "-") {
