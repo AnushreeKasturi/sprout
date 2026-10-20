@@ -775,6 +775,9 @@ func callGraphTool(root string, tool mcpTool, a toolArgs) (string, error) {
 	if tool.Name != "impact" && a.File == "" {
 		return "", fmt.Errorf("file is required")
 	}
+	if tool.Name == "impact" && a.Symbol != "" && len(a.Files) != 1 {
+		return "", fmt.Errorf(`symbol needs files with exactly one source file, e.g. {"files": ["store.go"], "symbol": "Save"}`)
+	}
 	confineFile := func(p string) (string, error) {
 		if strings.HasPrefix(p, "-") {
 			return "", fmt.Errorf("invalid file %q", p)
