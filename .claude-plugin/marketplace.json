@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "sprout",
+  "description": "Sprout: the map of your codebase for Claude Code.",
+  "owner": {
+    "name": "Sprout-DevLabs",
+    "url": "https://github.com/Sprout-DevLabs"
+  },
+  "plugins": [
+    {
+      "name": "sprout",
+      "description": "Dependency graph, change impact and the tests to run, as MCP tools, with a skill that tells Claude when to use them instead of grep.",
+      "source": "./claude-plugin",
+      "category": "development"
+    }
+  ]
+}

@@ -156,6 +156,12 @@ func follow(g *Graph, start []FileID, reverse bool, depth int, noTests bool) []q
 		}
 		frontier = reached
 	}
+	sortHits(hits)
+	return hits
+}
+
+// sortHits orders hits nearest first, code before tests, then by path.
+func sortHits(hits []queryHit) {
 	sort.SliceStable(hits, func(i, j int) bool {
 		a, b := hits[i], hits[j]
 		if a.Depth != b.Depth {
@@ -166,13 +172,15 @@ func follow(g *Graph, start []FileID, reverse bool, depth int, noTests bool) []q
 		}
 		return a.Path < b.Path
 	})
-	return hits
 }
 
-// explain fills in why each hit is there.
+// explain fills in why each hit is there, where it isn't known already.
 func explain(g *Graph, hits []queryHit, reverse bool) {
 	for i := range hits {
 		h := &hits[i]
+		if h.Reason != "" {
+			continue
+		}
 		if reverse {
 			h.Reason = g.Why(h.id, h.from)
 		} else {

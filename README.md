@@ -53,7 +53,18 @@ sprout --completion zsh > "${fpath[1]}/_sprout"       # or bash, fish, powershel
 server, so agents get the map, the graph and impact as tools instead of
 spending their context on `ls -R` and `grep`.
 
-**Claude Code**, in your project:
+**Claude Code**: install the plugin, which adds the MCP server and a skill
+telling Claude when to reach for it instead of grep:
+
+```
+/plugin install sprout --marketplace Sprout-DevLabs/sprout
+```
+
+It runs the `sprout` on your PATH. If you added the server before with
+`claude mcp add`, remove that one (`claude mcp remove sprout`) so Claude
+doesn't see the tools twice.
+
+Or just the server, in your project:
 
 ```bash
 claude mcp add sprout -- sprout mcp
@@ -86,7 +97,7 @@ give both in full (`which sprout` prints the first):
 
 | Tool | Does |
 |---|---|
-| `project_map` | The `--ai` map, key files included. Agents are told to call it first |
+| `project_map` | The `--ai` map, key files included, at a 1000-token budget unless the agent asks for more. Agents are told to call it first |
 | `reading_order` | The `--entry` list |
 | `tree` | A tree of any folder, with optional git status or churn |
 | `diff_tree` | `--diff` for a revision like `main...HEAD` |
@@ -179,6 +190,26 @@ Tests: 88 files, 67 Go packages
   go test ./cmd/kube-controller-manager/app ./cmd/kube-controller-manager/app/options ./pkg/controller/garbagecollector ./pkg/controller/storageversionmigrator ./test/e2e ./test/integration/auth ./test/integration/clustertrustbundles ./test/integration/controllermanager ./test/integration/daemonset ./test/integration/disruption ./test/integration/dra ./test/integration/dra/all
   (runs 12 of 67; --all prints the full command)
 ```
+
+In Go, it also follows the change function by function within its package,
+so `go test` gets a `-run` with only the tests that reach it, when that's
+under half of them. For one function, method, type or variable, add
+`--symbol NAME`: only the code and tests that use it, directly or through
+other functions.
+
+```
+$ sprout impact command.go --symbol SetContext   # in cobra
+Impact of SetContext
+
+  command.go
+
+Affected: 0 files
+
+Tests: 1 file, 1 Go package
+  go test . -run '^(TestSetContext|TestSetContextPersistentPreRun|TestSetContextPreRun|TestSetContextPreRunOverwrite)$'
+```
+
+That's 4 of cobra's 260 tests.
 
 ## `context`: before you edit a file
 
@@ -363,7 +394,8 @@ Sprout's `deps`, `dependents`, `impact`, `context` and `tour` commands
 support `--json` for machine-readable output with a `schemaVersion`.
 The `impact` command reports affected files, tests and test commands for
 supported languages through `testCommands` (Python, TypeScript and
-JavaScript) and `goTestPackages` (Go). The `context FILE --json` command
+JavaScript), `goTestPackages` (Go) and `goTestRun` (the tests to pass to
+`go test -run`, by package, where it narrows them). The `context FILE --json` command
 provides file context, while `tour --json` returns a structured project
 tour. These outputs can be used in scripts, CI workflows and bots.
 

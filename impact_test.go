@@ -251,3 +251,34 @@ func TestProjectGraphCache(t *testing.T) {
 		t.Error("the rebuilt graph is missing the new file")
 	}
 }
+
+// TestImpactNarrowsGoTests: within one package, only the tests that reach
+// the change, function by function, and with --symbol only what uses it.
+func TestImpactNarrowsGoTests(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, "go.mod", "module ex\n\ngo 1.22\n")
+	write(t, dir, "a.go", "package ex\n\nfunc A() int { return 1 }\n\nfunc helper() int { return A() }\n\nfunc B() int { return 2 }\n")
+	write(t, dir, "c.go", "package ex\n\nfunc C() int { return B() }\n")
+	write(t, dir, "a_test.go", "package ex\n\nimport \"testing\"\n\nfunc TestA(t *testing.T) { helper() }\n\n"+
+		"func TestShadow(t *testing.T) { A := 3; _ = A; B() }\n\nfunc TestC(t *testing.T) { C() }\n\nfunc TestD(t *testing.T) {}\n")
+	chdir(t, dir)
+
+	out, errOut, code := runCLI(t, "impact", "a.go", "--symbol", "A")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	if !strings.Contains(out, "go test . -run '^(TestA)$'") || strings.Contains(out, "c.go") {
+		t.Errorf("--symbol A should run TestA alone and leave c.go out:\n%s", out)
+	}
+	out, _, _ = runCLI(t, "impact", "c.go")
+	if !strings.Contains(out, "go test . -run '^(TestC)$'") {
+		t.Errorf("c.go should narrow to TestC:\n%s", out)
+	}
+	out, _, _ = runCLI(t, "impact", "a.go", "--symbol", "B")
+	if !strings.Contains(out, "c.go  in C") {
+		t.Errorf("--symbol B should list c.go with the function using it:\n%s", out)
+	}
+	if _, errOut, code := runCLI(t, "impact", "a.go", "--symbol", "Nope"); code != 2 || !strings.Contains(errOut, "a.go doesn't declare Nope") {
+		t.Errorf("unknown symbol: exit %d, %s", code, errOut)
+	}
+}
