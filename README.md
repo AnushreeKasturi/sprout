@@ -86,7 +86,7 @@ give both in full (`which sprout` prints the first):
 
 | Tool | Does |
 |---|---|
-| `project_map` | The `--ai` map, key files included. Agents are told to call it first |
+| `project_map` | The `--ai` map, key files included, at a 1000-token budget unless the agent asks for more. Agents are told to call it first |
 | `reading_order` | The `--entry` list |
 | `tree` | A tree of any folder, with optional git status or churn |
 | `diff_tree` | `--diff` for a revision like `main...HEAD` |

@@ -92,9 +92,14 @@ var mcpTools = []mcpTool{
 			"most-used files with their function and type signatures, " +
 			"fitted to a token budget. Call this first in an unfamiliar repository.",
 		InputSchema: schema(map[string]any{
-			"budget": map[string]any{"type": "integer", "description": "Approximate token budget (default 2000)."},
+			"budget": map[string]any{"type": "integer", "description": "Approximate token budget (default 1000; more lists more files)."},
 		}),
 		args: func(a toolArgs) ([]string, error) {
+			if a.Budget == nil {
+				// Agents call this first, every session: half the CLI's
+				// default still has the stack, structure and top files.
+				return []string{"--ai", "--budget", "1000"}, nil
+			}
 			return budgetArgs([]string{"--ai"}, a.Budget)
 		},
 	},
