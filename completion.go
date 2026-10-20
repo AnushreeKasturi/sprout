@@ -59,13 +59,16 @@ var subcommands = []subcommand{
 		{"commit", "the changes in one commit", true},
 		{"depth", "how many hops of dependents to follow", true},
 		{"all", "list every affected file", false},
+		{"symbol", "only what uses this Go function, type or variable", true},
 		{"json", "print JSON", false},
 	}, true},
 	{"context", "what to know before editing a file", []flagInfo{
 		{"budget", "approximate token budget", true},
 		{"json", "print JSON", false},
 	}, true},
-	{"mcp", "serve Sprout to coding agents over MCP", nil, false},
+	{"mcp", "serve Sprout to coding agents over MCP", []flagInfo{
+		{"print-config", "print the setup for a client: claude-code, cursor, vscode or claude-desktop", true},
+	}, false},
 	{"tour", "guided repository onboarding", []flagInfo{
 		{"json", "print versioned JSON", false},
 		{"limit", "maximum reading steps and directories (1-50)", true},

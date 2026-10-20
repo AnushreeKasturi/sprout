@@ -184,3 +184,17 @@ func TestGoUsesMethodsOnOtherFilesTypes(t *testing.T) {
 		t.Errorf("reason: %q", why)
 	}
 }
+
+// TestGoLinksMethodsOnOtherFilesTypes: a file that only adds methods to a
+// type declared elsewhere is linked from the files calling them.
+func TestGoLinksMethodsOnOtherFilesTypes(t *testing.T) {
+	g := graphFor(t, map[string]string{
+		"go.mod":       "module ex\n\ngo 1.22\n",
+		"command.go":   "package ex\n\ntype Command struct{}\n",
+		"groups.go":    "package ex\n\nfunc (c *Command) MarkRequired() {}\n",
+		"run.go":       "package ex\n\nfunc Run(c *Command) { c.MarkRequired() }\n",
+		"unrelated.go": "package ex\n\nfunc Other() {}\n",
+	})
+	wantDeps(t, g, "run.go", "command.go", "groups.go")
+	wantDeps(t, g, "unrelated.go")
+}

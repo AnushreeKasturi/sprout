@@ -496,10 +496,9 @@ func linkGo(b *graphBuilder, facts []fileFacts, r resolver) {
 	// Declarations per package, keyed by directory and package name, so
 	// each identifier costs one short-string lookup: this loop visits every
 	// identifier in every file.
-	type decls map[string]FileID
-	owner := map[string]decls{}     // declared in non-test files
-	testOwner := map[string]decls{} // declared in test files
-	pkgOf := map[string]string{}    // dir -> package name of its non-test files
+	owner := map[string]goOwners{}     // declared in non-test files
+	testOwner := map[string]goOwners{} // declared in test files
+	pkgOf := map[string]string{}       // dir -> package name of its non-test files
 	pkgFiles := map[string][]FileID{}
 	pkgKey := func(dir, pkg string) string { return dir + "\x00" + pkg }
 	for i, f := range facts {
@@ -522,7 +521,7 @@ func linkGo(b *graphBuilder, facts []fileFacts, r resolver) {
 		k := pkgKey(dir, gf.pkg)
 		d := table[k]
 		if d == nil {
-			d = decls{}
+			d = goOwners{}
 			table[k] = d
 		}
 		for _, name := range gf.declares {
@@ -531,6 +530,7 @@ func linkGo(b *graphBuilder, facts []fileFacts, r resolver) {
 			}
 		}
 	}
+	methods := goMethodsElsewhere(b, facts, owner, pkgKey)
 
 	dirOf := map[string]string{} // import path -> package dir ("" if not in the tree)
 	for i, f := range facts {
@@ -551,6 +551,7 @@ func linkGo(b *graphBuilder, facts []fileFacts, r resolver) {
 				}
 			}
 		}
+		linkMethodCalls(b, id, gf.called, methods[k])
 
 		local := map[string]string{} // name the file refers to a package by -> its dir
 		for _, imp := range gf.imports {
@@ -596,6 +597,50 @@ func linkGo(b *graphBuilder, facts []fileFacts, r resolver) {
 			}
 		}
 	}
+}
+
+// linkMethodCalls links id to the files declaring the methods it calls.
+func linkMethodCalls(b *graphBuilder, id FileID, called map[string]bool, methods map[string][]FileID) {
+	for name := range called {
+		for _, t := range methods[name] {
+			if t != id {
+				b.link(id, t)
+			}
+		}
+	}
+}
+
+// goOwners maps the names a Go package declares to the file declaring each.
+type goOwners map[string]FileID
+
+// goMethodsElsewhere indexes, by package and method name, the non-test
+// files declaring methods on a type from another file of their package,
+// like cobra's flag_groups.go adding methods to Command: nothing names such
+// a file, so x.Method() calls are its only links. Methods beside their type
+// are reached through the type.
+// ponytail: calls match by method name, so a common one (String, Equal)
+// can link a file that calls it on another type; type checking would fix it.
+func goMethodsElsewhere(b *graphBuilder, facts []fileFacts, owner map[string]goOwners, pkgKey func(dir, pkg string) string) map[string]map[string][]FileID {
+	methods := map[string]map[string][]FileID{}
+	for i, f := range facts {
+		gf := f.goFacts
+		if gf == nil || b.files[i].Test {
+			continue
+		}
+		k := pkgKey(path.Dir(b.files[i].Rel), gf.pkg)
+		for _, m := range gf.methods {
+			if t, ok := owner[k][m[0]]; !ok || t == FileID(i) {
+				continue
+			}
+			if methods[k] == nil {
+				methods[k] = map[string][]FileID{}
+			}
+			if ids := methods[k][m[1]]; len(ids) == 0 || ids[len(ids)-1] != FileID(i) {
+				methods[k][m[1]] = append(ids, FileID(i))
+			}
+		}
+	}
+	return methods
 }
 
 // guessPkgNames are the likely package names for an import path: its last
