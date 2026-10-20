@@ -230,3 +230,24 @@ func TestImpactCleanTreeHint(t *testing.T) {
 		}
 	}
 }
+
+// TestProjectGraphCache: the graph is reused while nothing changes, and
+// rebuilt once a file is edited or added.
+func TestProjectGraphCache(t *testing.T) {
+	dir := queryRepo(t)
+	g1, _ := projectGraph(dir, false)
+	if g2, _ := projectGraph(dir, false); g2 != g1 {
+		t.Error("an unchanged project should reuse its graph")
+	}
+	if g3, _ := projectGraph(dir, true); g3 == g1 {
+		t.Error("a graph without symbols shouldn't answer for one with them")
+	}
+	write(t, dir, "d/d.go", "package d\n\nimport \"ex/c\"\n\nvar D = c.C\n")
+	g4, _ := projectGraph(dir, false)
+	if g4 == g1 {
+		t.Fatal("a new file should rebuild the graph")
+	}
+	if _, ok := g4.ID("d/d.go"); !ok {
+		t.Error("the rebuilt graph is missing the new file")
+	}
+}
