@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"os/exec"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -85,7 +88,7 @@ COMP_WORDS=("$@"); COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 )); _sprout; printf '%s\
 	if got := complete("sprout", "dep"); got != "deps\ndependents\n" {
 		t.Errorf("sprout dep<TAB> = %q", got)
 	}
-	if got := complete("sprout", "impact", "--s"); got != "--staged\n" {
+	if got := complete("sprout", "impact", "--s"); got != "--staged\n--symbol\n" {
 		t.Errorf("sprout impact --s<TAB> = %q", got)
 	}
 	if got := complete("sprout", "context", "ma"); got != "main.go\n" {
@@ -96,5 +99,24 @@ COMP_WORDS=("$@"); COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 )); _sprout; printf '%s\
 	}
 	if got := complete("sprout", "tour", "--limit", "ma"); strings.Contains(got, "main.go") {
 		t.Errorf("tour --limit must not complete filenames: %q", got)
+	}
+}
+
+// TestCompletionsCoverSubcommandFlags: every flag a subcommand's usage
+// names is in its completion table.
+func TestCompletionsCoverSubcommandFlags(t *testing.T) {
+	flagName := regexp.MustCompile(`--([a-z][a-z-]*)`)
+	for _, sc := range subcommands {
+		out, _, _ := runCLI(t, sc.name, "--help")
+		if sc.name == "mcp" { // main hands mcp to serveMCP before run
+			var b bytes.Buffer
+			serveMCP([]string{"--help"}, nil, &b, &b)
+			out = b.String()
+		}
+		for _, m := range flagName.FindAllStringSubmatch(out, -1) {
+			if !slices.ContainsFunc(sc.flags, func(f flagInfo) bool { return f.name == m[1] }) && m[1] != "help" {
+				t.Errorf("sprout %s --%s is missing from its completions", sc.name, m[1])
+			}
+		}
 	}
 }

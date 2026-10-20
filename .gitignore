@@ -7,3 +7,4 @@ manpages/
 *.test
 *.out
 *.prof
+__pycache__/
