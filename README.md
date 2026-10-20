@@ -53,7 +53,18 @@ sprout --completion zsh > "${fpath[1]}/_sprout"       # or bash, fish, powershel
 server, so agents get the map, the graph and impact as tools instead of
 spending their context on `ls -R` and `grep`.
 
-**Claude Code**, in your project:
+**Claude Code**: install the plugin, which adds the MCP server and a skill
+telling Claude when to reach for it instead of grep:
+
+```
+/plugin install sprout --marketplace Sprout-DevLabs/sprout
+```
+
+It runs the `sprout` on your PATH. If you added the server before with
+`claude mcp add`, remove that one (`claude mcp remove sprout`) so Claude
+doesn't see the tools twice.
+
+Or just the server, in your project:
 
 ```bash
 claude mcp add sprout -- sprout mcp
