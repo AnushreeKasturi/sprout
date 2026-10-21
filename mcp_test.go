@@ -116,6 +116,7 @@ func TestMCPGraphTools(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"impact","arguments":{}}}`,
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"impact","arguments":{"files":["a/a.go"]}}}`,
 		`{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"impact","arguments":{"files":["a/a.go"],"symbol":"Hello"}}}`,
+		`{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"impact","arguments":{"file":"a/a.go","symbol":"Hello"}}}`,
 	)
 	for id, want := range map[float64][]string{
 		1: {"3 files (1 test) depend on a/a.go", "c/c.go       via b/b.go · uses b.B"},
@@ -123,6 +124,7 @@ func TestMCPGraphTools(t *testing.T) {
 		3: {"(uncommitted changes)", "web/x.ts", "web/y.ts  imports ./x.js"},
 		4: {"Affected: 2 files, 1 directly", "go test ./b"},
 		5: {"Affected: 2 files, 1 directly", "b/b.go  uses Hello"},
+		6: {"Affected: 2 files, 1 directly", "b/b.go  uses Hello"},
 	} {
 		text, isErr := toolText(t, resps[id])
 		if isErr {
@@ -149,6 +151,7 @@ func TestMCPGraphToolsConfineFiles(t *testing.T) {
 		`{"name":"deps","arguments":{"file":"--json"}}`,
 		`{"name":"deps","arguments":{}}`,
 		`{"name":"impact","arguments":{"files":["../../etc/passwd"]}}`,
+		`{"name":"impact","arguments":{"file":"../../etc/passwd"}}`,
 		`{"name":"impact","arguments":{"rev":"--output=pwned"}}`,
 		`{"name":"impact","arguments":{"commit":"-x"}}`,
 	} {
