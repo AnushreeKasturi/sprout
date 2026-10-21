@@ -439,15 +439,20 @@ Example output from `sprout dependents graph.go --json`, trimmed:
 ## Speed
 
 Sprout reads only what the output needs and parses sources in parallel. On
-Kubernetes (31,412 files, Apple M4, warm cache), from the controlled run in the
-[benchmark log](https://sprout-devlabs.github.io/sprout-web/benchmarks/):
+Kubernetes (31,412 files, Apple M4, warm cache), from the
+[performance page](https://sprout-devlabs.github.io/sprout-web/docs/reference/performance/):
 
-| Command | Time |
-|---|---|
-| `sprout` | 0.23 s |
-| `sprout --json` | 0.33 s |
-| `sprout --entry` | 0.57 s |
-| `sprout --ai` | 0.72 s |
+| Command | Time | Peak memory |
+|---|---|---|
+| `sprout` | 0.23 s | 31 MB |
+| `sprout --json` | 0.33 s | 29 MB |
+| `sprout --entry` | 0.57 s | 302 MB |
+| `sprout --ai` | 0.72 s | 310 MB |
+
+Times are medians of rounds 2–4 of five interleaved runs, after one warm-up,
+measured with `/usr/bin/time -l` and output sent to `/dev/null`. The
+[benchmark log](https://sprout-devlabs.github.io/sprout-web/benchmarks/) has
+the full controlled run, including the rounds and the methodology.
 
 `tour` costs about what `--entry` does; `impact` and `context` add the tests
 to the graph (about half a second more on Kubernetes). `bench_test.go`
